@@ -1,0 +1,33 @@
+[Desktop Entry]
+Type=Application
+Name=Shotput
+GenericName=Screenshot Tool
+Comment=Screenshots for pasting: drag an area, it is on the clipboard
+Exec=@BIN@ %U
+Icon=io.github.shotput.Shotput
+Terminal=false
+Categories=Utility;Graphics;
+Keywords=screenshot;capture;annotate;clipboard;
+MimeType=x-scheme-handler/shotput;
+StartupNotify=false
+Actions=area;annotate;window;text;settings;
+
+[Desktop Action area]
+Name=Capture Area
+Exec=@BIN@ area
+
+[Desktop Action annotate]
+Name=Capture Area and Annotate
+Exec=@BIN@ annotate
+
+[Desktop Action window]
+Name=Capture Window
+Exec=@BIN@ window
+
+[Desktop Action text]
+Name=Copy Text from Area
+Exec=@BIN@ text
+
+[Desktop Action settings]
+Name=Settings
+Exec=@BIN@ settings

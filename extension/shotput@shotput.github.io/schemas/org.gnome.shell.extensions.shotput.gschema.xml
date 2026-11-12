@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.shotput" path="/org/gnome/shell/extensions/shotput/">
+    <!-- Shortcuts -->
+    <key name="shortcut-area" type="as"><default><![CDATA[['<Control><Alt><Super>a']]]></default><summary>Capture area</summary></key>
+    <key name="shortcut-area-annotate" type="as"><default><![CDATA[['<Control><Alt><Super>d']]]></default><summary>Capture area and annotate</summary></key>
+    <key name="shortcut-window" type="as"><default><![CDATA[['<Control><Alt><Super>w']]]></default><summary>Capture window</summary></key>
+    <key name="shortcut-screen" type="as"><default><![CDATA[['<Control><Alt><Super>s']]]></default><summary>Capture screen</summary></key>
+    <key name="shortcut-annotate-last" type="as"><default><![CDATA[['<Control><Alt><Super>e']]]></default><summary>Annotate last capture</summary></key>
+    <key name="shortcut-repeat-area" type="as"><default><![CDATA[[]]]></default><summary>Repeat last area</summary></key>
+    <key name="shortcut-text" type="as"><default><![CDATA[['<Control><Alt><Super>t']]]></default><summary>Copy text from area</summary></key>
+    <key name="shortcut-annotate-clipboard" type="as"><default><![CDATA[[]]]></default><summary>Annotate clipboard image</summary></key>
+
+    <!-- General -->
+    <key name="shows-panel-icon" type="b"><default>true</default><summary>Show in the top bar</summary></key>
+    <key name="plays-sound" type="b"><default>false</default><summary>Play a sound on capture</summary></key>
+    <key name="allows-links" type="b"><default>true</default><summary>Allow shotput:// links</summary></key>
+    <key name="keeps-editor-ready" type="b"><default>true</default><summary>Keep the editor ready in the background</summary></key>
+    <key name="has-launched" type="b"><default>false</default><summary>The welcome note has been shown</summary></key>
+
+    <!-- Capture -->
+    <key name="shows-magnifier" type="b"><default>true</default><summary>Show the magnifier</summary></key>
+    <key name="snaps-to-edges" type="b"><default>true</default><summary>Snap to window edges</summary></key>
+    <key name="selection-hints" type="s"><default>'first-few'</default><summary>first-few, always or never</summary></key>
+    <key name="hints-shown" type="i"><default>0</default><summary>How many times the selection hint has shown</summary></key>
+    <key name="after-capture" type="s"><default>'preview'</default><summary>preview, editor or clipboard</summary></key>
+    <key name="preview-corner" type="s"><default>'automatic'</default><summary>automatic, bottom-left, bottom-right, top-left or top-right</summary></key>
+    <key name="preview-duration" type="d"><default>6.0</default><summary>Seconds before the preview leaves. Zero keeps it.</summary></key>
+    <key name="window-shadow" type="b"><default>false</default><summary>Keep the window's shadow</summary></key>
+    <key name="window-background" type="s"><default>'transparent'</default><summary>transparent, wallpaper or solid</summary></key>
+    <key name="window-background-color" type="s"><default>'#E9E6DF'</default><summary>Solid background colour for window captures</summary></key>
+    <key name="window-padding" type="d"><default>48.0</default><summary>Points of background around a window capture</summary></key>
+    <key name="shows-pointer" type="b"><default>false</default><summary>Include the pointer in screen captures</summary></key>
+
+    <!-- Editor -->
+    <key name="escape-in-editor" type="s"><default>'discard'</default><summary>discard or copy</summary></key>
+    <key name="editor-closes-on-copy" type="b"><default>false</default><summary>Copy also closes the editor</summary></key>
+    <key name="recognizes-shapes" type="b"><default>true</default><summary>Turn sketches into shapes</summary></key>
+    <key name="ocr-keeps-line-breaks" type="b"><default>true</default><summary>Keep line breaks in recognised text</summary></key>
+    <key name="ocr-language" type="s"><default>'eng'</default><summary>Tesseract language codes, joined with +</summary></key>
+    <key name="editor-tool" type="i"><default>0</default><summary>Last tool</summary></key>
+    <key name="editor-color" type="i"><default>0</default><summary>Last ink</summary></key>
+    <key name="editor-weight" type="i"><default>1</default><summary>Last weight</summary></key>
+
+    <!-- Output -->
+    <key name="copy-at-point-size" type="b"><default>false</default><summary>Use standard resolution</summary></key>
+    <key name="save-folder" type="s"><default>''</default><summary>Save folder</summary></key>
+    <key name="saves-every-capture" type="b"><default>false</default><summary>Save every capture to the save folder</summary></key>
+    <key name="save-format" type="s"><default>'png'</default><summary>png or jpeg</summary></key>
+    <key name="jpeg-quality" type="d"><default>0.85</default><summary>JPEG quality</summary></key>
+    <key name="filename-template" type="s"><default>'Shotput %Y-%m-%d at %H.%M.%S'</default><summary>File name template</summary></key>
+  </schema>
+</schemalist>

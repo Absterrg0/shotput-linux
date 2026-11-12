@@ -1,0 +1,121 @@
+/* Shotput: selection overlay, preview, shelf, tray and HUD. */
+
+.shotput-dim { background-color: rgba(0, 0, 0, 0.3); }
+
+.shotput-outline { border: 1px solid white; }
+/* St fills a box-shadow under the whole box, so the outline's dark edge is its own frame. */
+.shotput-outline-shadow { border: 1px solid rgba(0, 0, 0, 0.35); }
+.shotput-outline-window {
+  border: 2px solid -st-accent-color;
+  border-radius: 10px;
+  background-color: rgba(53, 132, 228, 0.12);
+}
+
+.shotput-guide { background-color: rgba(255, 255, 255, 0.7); }
+.shotput-guide-snapped { background-color: -st-accent-color; }
+
+.shotput-loupe-ring { border-radius: 58px; border: 1.5px solid rgba(255, 255, 255, 0.92); }
+.shotput-loupe-shadow { border-radius: 58px; background-color: black; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35); }
+.shotput-reticle { border: 1px solid -st-accent-color; }
+
+.shotput-badge {
+  background-color: rgba(25, 25, 23, 0.82);
+  color: white;
+  border-radius: 6px;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-weight: 500;
+  font-feature-settings: "tnum";
+}
+
+.shotput-hint {
+  background-color: rgba(25, 25, 23, 0.82);
+  color: white;
+  border-radius: 17px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Preview */
+.shotput-preview {
+  border-radius: 14px;
+  background-color: #2b2a27;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.38);
+}
+.shotput-preview-scrim { background-color: rgba(25, 25, 23, 0.55); border-radius: 14px; }
+.shotput-preview-buttons { spacing: 6px; }
+
+.shotput-glass-button {
+  width: 32px; height: 32px;
+  border-radius: 999px;
+  color: white;
+  background-color: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  transition-duration: 150ms;
+}
+.shotput-glass-button:hover { background-color: rgba(255, 255, 255, 0.28); }
+.shotput-glass-button:active { background-color: rgba(255, 255, 255, 0.36); }
+.shotput-glass-small { width: 22px; height: 22px; }
+
+/* Shelf */
+.shotput-shelf {
+  border-radius: 22px;
+  background-color: rgba(34, 34, 32, 0.92);
+  color: white;
+  padding: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transition-duration: 200ms;
+}
+.shotput-shelf:targeted { background-color: rgba(31, 111, 229, 0.35); }
+.shotput-shelf-inner {
+  border-radius: 16px;
+  border: 1.5px dashed rgba(255, 255, 255, 0.25);
+}
+.shotput-shelf:targeted .shotput-shelf-inner { border-color: -st-accent-color; }
+.shotput-shelf-icon { margin-bottom: 4px; }
+.shotput-shelf-title { font-weight: bold; font-size: 15px; }
+.shotput-shelf-subtitle { font-size: 12px; color: rgba(255, 255, 255, 0.6); font-feature-settings: "tnum"; }
+
+/* Flash and HUD */
+.shotput-flash { background-color: white; border-radius: 4px; }
+.shotput-hud {
+  background-color: rgba(34, 34, 32, 0.92);
+  color: white;
+  border-radius: 999px;
+  padding: 10px 16px;
+  spacing: 8px;
+  font-weight: 500;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+/* Tray */
+.shotput-tray-item { padding: 0; }
+.shotput-tray-item:hover, .shotput-tray-item:focus { background-color: transparent; }
+.shotput-tray { width: 452px; padding: 6px 8px 4px 8px; spacing: 10px; }
+.shotput-tray-header { spacing: 6px; }
+.shotput-tray-title { font-weight: bold; }
+.shotput-tray-count { color: rgba(255, 255, 255, 0.55); font-feature-settings: "tnum"; }
+.shotput-link-button { color: rgba(255, 255, 255, 0.6); font-weight: 500; padding: 2px 6px; border-radius: 6px; }
+.shotput-link-button:hover { color: white; background-color: rgba(255, 255, 255, 0.08); }
+.shotput-tray-strip { spacing: 8px; padding-bottom: 4px; }
+.shotput-tray-footer { font-size: 11px; color: rgba(255, 255, 255, 0.45); }
+.shotput-tray-empty {
+  height: 86px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 0 16px;
+  spacing: 12px;
+}
+.shotput-tray-empty-title { font-weight: 500; }
+.shotput-tray-empty-detail { font-size: 12px; color: rgba(255, 255, 255, 0.6); }
+.shotput-tray-capture { padding: 6px 14px; }
+
+.shotput-pin-cell { border-radius: 10px; padding: 0; background-color: rgba(255, 255, 255, 0.05); }
+.shotput-pin-ring { border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12); }
+.shotput-pin-cell:hover .shotput-pin-ring { border: 2px solid -st-accent-color; }
+.shotput-pin-meta {
+  margin: 4px; padding: 1px 6px; border-radius: 6px; font-size: 10px;
+  background-color: rgba(0, 0, 0, 0.6); color: white;
+}
+.shotput-accel { color: rgba(255, 255, 255, 0.45); padding-left: 24px; }

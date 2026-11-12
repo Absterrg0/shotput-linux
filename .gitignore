@@ -1,0 +1,3 @@
+/editor/target/
+/editor/.cargo/
+*.compiled

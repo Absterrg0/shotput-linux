@@ -1,0 +1,9 @@
+{
+  "uuid": "shotput@shotput.github.io",
+  "name": "Shotput",
+  "description": "Screenshots for pasting. Press a shortcut, drag an area, paste it into your agent. Annotate first when the picture needs a pointer.\n\nA Linux port of Shotput for macOS.",
+  "shell-version": ["48", "49", "50"],
+  "settings-schema": "org.gnome.shell.extensions.shotput",
+  "url": "https://github.com/keshav-exe/shotput",
+  "version": 1
+}

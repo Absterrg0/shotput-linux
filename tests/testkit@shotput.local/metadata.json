@@ -1,0 +1,1 @@
+{"uuid": "testkit@shotput.local", "name": "Shotput test kit", "description": "Test only: turns on unsafe mode in a nested shell so tests can drive it.", "shell-version": ["48", "49", "50"]}
