@@ -32,6 +32,24 @@ cargo (needs Rust and the GTK 4 and libadwaita development files).
 
 To remove it: `~/.local/share/shotput/uninstall.sh`. GNOME gets its Print Screen keys back.
 
+## KDE Plasma, Hyprland and Sway
+
+Shotput also runs on Wayland desktops other than GNOME. There the app captures by itself: it
+takes a still of each screen (through KWin on Plasma, `grim` on Hyprland and Sway), shows the same
+frozen overlay with snapping, the magnifier and window picking, then copies, saves, previews or
+opens the editor exactly as on GNOME.
+
+- **Shortcuts** go through your desktop's shortcut service (the GlobalShortcuts portal). Plasma
+  asks once which keys to give Shotput; Print is Spectacle's there by default, so pick the keys you
+  want, and change them later in System Settings → Shortcuts. On Sway, bind the commands, for
+  example `bindsym Print exec shotput area`.
+- **Install `gtk4-layer-shell`** for the floating preview and an overlay above panels (Plasma,
+  Hyprland and Sway all support it). Without it the overlay is a fullscreen window and a
+  notification replaces the preview.
+- `shotput settings` opens Shotput's own settings window there.
+- Not yet on these desktops: pins in a tray icon, and opening the editor right where you captured
+  (Wayland lets only GNOME's extension place windows).
+
 ## Shortcuts
 
 | Action | Default | What happens |
@@ -119,8 +137,10 @@ corners, and "Copy text" copies the text in the screenshot.
   nodes on the GPU at full resolution, so what you see is what you copy. The editor stays resident
   (about 40 MB) and is opened over D-Bus, so it appears instantly.
 - Text recognition runs Tesseract on this machine. Nothing you capture leaves your computer.
-- Without the extension (other desktops, or before the first re-login), `shotput area` and
-  `shotput annotate` capture through the desktop's screenshot portal and open the same editor.
+- On KDE Plasma, Hyprland and Sway the app does the extension's job itself (`editor/src/native.rs`,
+  `overlay.rs`, `grab.rs`), with layer-shell surfaces through gtk4-layer-shell when installed.
+- Before the first re-login on GNOME, `shotput area` and `shotput annotate` capture through
+  GNOME's screenshot picker and open the same editor.
 
 ## Differences from the Mac version
 
@@ -137,6 +157,8 @@ cd editor && cargo test --release              # model and shape recognition tes
 ./target/release/shotput dev-editor /tmp/out   # renders the editor with every kind of mark
 tests/nested-shell.sh                          # headless nested GNOME Shell with the extension
 tests/sh-eval.sh 'sp().run("area")'            # drive it (after loading tests/drive.js)
+tests/containers/run.sh gnome46                # GNOME 46 (Ubuntu 24.04) in a container
+tests/containers/sway-run.sh BIN               # headless Sway; KDE: kde-run.sh (KDE_GPU=1)
 scripts/package.sh                             # builds dist/shotput-linux-ARCH.tar.gz
 ```
 

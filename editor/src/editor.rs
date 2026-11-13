@@ -1777,6 +1777,7 @@ impl Editor {
             let Ok(png) = gio::spawn_blocking(move || encode_out.save_to_png_bytes()).await else { return };
             if let (Some(id), Some(path)) = (id, path) {
                 if std::fs::write(&path, &png).is_ok() {
+                    crate::native::capture_edited(&path);
                     output::call_shell("CaptureEdited", &(id, path.to_string_lossy().to_string()).to_variant());
                 }
             }

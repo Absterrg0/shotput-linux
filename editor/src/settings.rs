@@ -58,6 +58,14 @@ impl Settings {
         }
     }
 
+    pub fn strv(&self, key: &str) -> Vec<String> {
+        self.has(key).map(|s| s.strv(key).iter().map(|v| v.to_string()).collect()).unwrap_or_default()
+    }
+    /// The underlying settings, for binding widgets.
+    pub fn gio(&self) -> Option<&gio::Settings> {
+        self.0.as_ref()
+    }
+
     pub fn escape_copies(&self) -> bool {
         self.string("escape-in-editor", "discard") == "copy"
     }

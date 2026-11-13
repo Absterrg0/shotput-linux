@@ -60,6 +60,19 @@ Name=$APP
 Exec=$BIN_DIR/shotput --gapplication-service
 SVC
 install -m 755 "$HERE/uninstall.sh" "$SHARE/uninstall.sh"
+# Outside GNOME, the app captures by itself and holds the shortcuts, so it starts at login.
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
+mkdir -p "$CONFIG/autostart"
+cat > "$CONFIG/autostart/$APP.desktop" <<AUTO
+[Desktop Entry]
+Type=Application
+Name=Shotput
+Comment=Screenshots for pasting
+Exec=$BIN_DIR/shotput --background
+Icon=$APP
+NotShowIn=GNOME;Unity;
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
+AUTO
 update-desktop-database -q "$DATA/applications" 2>/dev/null || true
 xdg-mime default "$APP.desktop" x-scheme-handler/shotput 2>/dev/null || true
 gtk-update-icon-cache -q -t "$DATA/icons/hicolor" 2>/dev/null || true
@@ -108,9 +121,42 @@ fi
 
 # Restart a running editor so it picks up the new build.
 pkill -f "$BIN_DIR/shotput --gapplication-service" 2>/dev/null || true
+pkill -f "$BIN_DIR/shotput --background" 2>/dev/null || true
+
+desktop_name=$(printf '%s' "${XDG_CURRENT_DESKTOP:-}" | tr '[:upper:]' '[:lower:]')
+case ":$desktop_name:" in
+  ::|*:gnome:*|*:ubuntu:*|*:unity:*) native=0 ;;
+  *) native=1 ;;
+esac
+if [ "$native" = 1 ]; then
+  step "Starting Shotput for your desktop"
+  layer_found=0
+  for dir in /usr/lib64 /usr/lib /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu /usr/local/lib; do
+    [ -e "$dir/libgtk4-layer-shell.so.0" ] && layer_found=1
+  done
+  if [ "$layer_found" = 0 ]; then
+    note "For the floating preview and a smoother overlay, install gtk4-layer-shell:"
+    if command -v apt-get >/dev/null; then note "sudo apt install libgtk4-layer-shell0"
+    elif command -v pacman >/dev/null; then note "sudo pacman -S gtk4-layer-shell"
+    elif command -v zypper >/dev/null; then note "sudo zypper install libgtk4-layer-shell0"
+    else note "sudo dnf install gtk4-layer-shell"; fi
+  fi
+  case ":$desktop_name:" in
+    *:hyprland:*|*:sway:*) command -v grim >/dev/null || note "Install grim for instant captures on this desktop." ;;
+  esac
+  nohup "$BIN_DIR/shotput" --background >/dev/null 2>&1 &
+fi
 
 step "Done"
-if [ "$was_active" -gt 0 ] && [ "$old_version" = "$new_version" ]; then
+if [ "$native" = 1 ]; then
+  case ":$desktop_name:" in
+    *:kde:*) echo "Shotput is running. Approve its shortcuts in the dialog Plasma shows (Print is Spectacle's by"
+             echo "default, so pick the keys you want), or change them in System Settings → Shortcuts." ;;
+    *:sway:*) echo "Shotput is running. Bind its commands in your Sway config, for example:"
+              echo "    bindsym Print exec shotput area" ;;
+    *) echo "Shotput is running. Approve its shortcuts if your desktop asks, or bind 'shotput area' to a key." ;;
+  esac
+elif [ "$was_active" -gt 0 ] && [ "$old_version" = "$new_version" ]; then
   echo "Shotput is running."
 elif [ "$was_active" -gt 0 ]; then
   echo "Shotput is updated. Log out and back in to load the new extension; the editor is already new."

@@ -34,7 +34,9 @@ fi
 
 echo "==> Removing files"
 pkill -f "$HOME/.local/bin/shotput --gapplication-service" 2>/dev/null || true
+pkill -f "$HOME/.local/bin/shotput --background" 2>/dev/null || true
 rm -rf "$EXT_DIR" "$DATA/shotput" "${XDG_CACHE_HOME:-$HOME/.cache}/shotput"
+rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/$APP.desktop"
 rm -f "$HOME/.local/bin/shotput" "$DATA/applications/$APP.desktop" \
   "$DATA/icons/hicolor/scalable/apps/$APP.svg" "$DATA/dbus-1/services/$APP.service"
 update-desktop-database -q "$DATA/applications" 2>/dev/null || true

@@ -1,19 +1,29 @@
 //! Shotput for Linux: the editor app and command line.
 //!
-//! Captures, the selection overlay, the preview, pins and hotkeys live in the GNOME Shell
-//! extension, which runs inside the compositor. This binary is the annotation editor (kept
-//! resident so it opens instantly), the `shotput` command and `shotput://` links, and a
-//! fallback that captures through the screenshot portal when the extension is not loaded.
+//! On GNOME, captures, the selection overlay, the preview, pins and hotkeys live in the GNOME
+//! Shell extension, which runs inside the compositor. This binary is the annotation editor (kept
+//! resident so it opens instantly), the `shotput` command and `shotput://` links. On KDE Plasma,
+//! Hyprland, Sway and other Wayland desktops it also captures by itself (see `native`), with
+//! shortcuts through the GlobalShortcuts portal.
 
 mod backdrop;
 mod canvas;
+mod desktop;
 mod drag;
 mod editor;
+mod grab;
+mod layer;
 mod model;
+mod native;
+mod npreview;
 mod output;
+mod overlay;
 mod render;
 mod segmented;
 mod settings;
+mod settings_window;
+mod shortcuts;
+mod windows;
 
 use adw::prelude::*;
 use editor::{CaptureInfo, Editor};
@@ -21,6 +31,16 @@ use gtk::{gdk, gio, glib};
 use std::path::PathBuf;
 
 pub const APP_ID: &str = "io.github.shotput.Shotput";
+
+/// Logs to stderr when SHOTPUT_DEBUG is set.
+#[macro_export]
+macro_rules! debug {
+    ($($arg:tt)*) => {
+        if std::env::var_os("SHOTPUT_DEBUG").is_some() {
+            eprintln!("shotput: {}", format!($($arg)*));
+        }
+    };
+}
 
 const ACTIONS: [&str; 9] = ["area", "annotate", "window", "screen", "last", "repeat", "text", "clipboard", "settings"];
 
@@ -75,6 +95,10 @@ fn main() -> glib::ExitCode {
         }
     }
 
+    // Overlays on KDE Plasma and wlroots desktops need gtk4-layer-shell loaded first.
+    if !matches!(first, Some("dev-editor" | "compose")) {
+        layer::preload(&args);
+    }
     let dev = first == Some("dev-editor");
     let app = adw::Application::builder()
         .application_id(if dev { "io.github.shotput.Dev" } else { APP_ID })
@@ -134,6 +158,19 @@ fn startup(app: &adw::Application) {
     // Stay resident, so the editor opens instantly and anything this process put on the
     // clipboard stays pasteable.
     std::mem::forget(app.hold());
+
+    // Without the GNOME extension, this process captures and owns the shortcuts.
+    if let Some(display) = gdk::Display::default() {
+        let css = gtk::CssProvider::new();
+        css.load_from_string(npreview::CSS);
+        gtk::style_context_add_provider_for_display(&display, &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+    }
+    if let Some(connection) = app.dbus_connection() {
+        windows::export(&connection);
+    }
+    if app.application_id().as_deref() == Some(APP_ID) && desktop::captures_natively() {
+        shortcuts::start(app);
+    }
 
     // The extension opens captures through this action, without starting a process.
     let open = gio::SimpleAction::new("open", Some(glib::VariantTy::STRING));
@@ -257,6 +294,31 @@ fn handle_command_line(app: &adw::Application, args: &[String], cwd: &std::path:
                 app.quit();
             });
         }
+        // Started at login on desktops without the GNOME extension, to hold the shortcuts.
+        Some("--background") => {}
+        // Test hooks for the nested compositor, which has no real pointer.
+        Some("test-overlay") if std::env::var_os("SHOTPUT_TEST").is_some() => {
+            let num = |i: usize| args.get(i).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+            let modifiers = match args.get(5).map(String::as_str) {
+                Some("shift") => gdk::ModifierType::SHIFT_MASK,
+                Some("ctrl") => gdk::ModifierType::CONTROL_MASK,
+                _ => gdk::ModifierType::empty(),
+            };
+            if let Some(o) = native::active_overlay() {
+                o.test_event(args.get(2).map(String::as_str).unwrap_or(""), num(3), num(4), modifiers);
+            }
+        }
+        Some("test-grab") if std::env::var_os("SHOTPUT_TEST").is_some() => {
+            let out = args.get(2).cloned().unwrap_or_else(|| "/tmp/shotput-grab.png".into());
+            grab::grab(move |result| match result {
+                Ok(stills) => {
+                    for (i, s) in stills.iter().enumerate() {
+                        let _ = s.texture.save_to_png(format!("{out}.{i}.png"));
+                    }
+                }
+                Err(e) => eprintln!("grab failed: {e}"),
+            });
+        }
         Some("--open-json") => {
             if let Some(json) = args.get(2) {
                 open_request(app, json);
@@ -264,6 +326,11 @@ fn handle_command_line(app: &adw::Application, args: &[String], cwd: &std::path:
         }
         Some(cmd) => match action_for(cmd) {
             Some("blocked") => {}
+            Some(action) if desktop::captures_natively() => match action {
+                "settings" => settings_window::open(app),
+                "clipboard" => fallback(app, action),
+                _ => native::run(app, action),
+            },
             Some(action) => fallback(app, action),
             None => {
                 let path = cwd.join(cmd);
@@ -274,6 +341,7 @@ fn handle_command_line(app: &adw::Application, args: &[String], cwd: &std::path:
                 }
             }
         },
+        None if desktop::captures_natively() => settings_window::open(app),
         None => fallback(app, "settings"),
     }
 }

@@ -10,6 +10,8 @@ Categories=Utility;Graphics;
 Keywords=screenshot;capture;annotate;clipboard;
 MimeType=x-scheme-handler/shotput;
 StartupNotify=false
+# KDE Plasma: lets Shotput take screenshots through KWin without a prompt each time.
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
 Actions=area;annotate;window;text;settings;
 
 [Desktop Action area]
