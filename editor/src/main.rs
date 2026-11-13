@@ -7,6 +7,7 @@
 
 mod backdrop;
 mod canvas;
+mod drag;
 mod editor;
 mod model;
 mod output;
@@ -35,6 +36,7 @@ Commands:
   clipboard   Opens the image on the clipboard in the editor.
   settings    Opens Shotput's settings.
   edit FILE   Opens an image in the editor.
+  version     Prints the version.
   shotput://ACTION   The same commands as links, for launchers.
 
 Captures run in the Shotput GNOME Shell extension. Without it, area, annotate, window and
@@ -47,6 +49,10 @@ fn main() -> glib::ExitCode {
     // Fast paths that never start GTK: they hand the action to the extension over D-Bus.
     match first {
         Some("compose") => return compose_command(&args[2..]),
+        Some("-V" | "--version" | "version") => {
+            println!("shotput {}", env!("CARGO_PKG_VERSION"));
+            return glib::ExitCode::SUCCESS;
+        }
         Some("-h" | "--help" | "help") => {
             println!("{USAGE}");
             return glib::ExitCode::SUCCESS;
@@ -137,6 +143,15 @@ fn startup(app: &adw::Application) {
     });
     app.add_action(&open);
 
+    // The preview hands a capture over for dragging into another app.
+    let drag = gio::SimpleAction::new("drag", Some(glib::VariantTy::STRING));
+    let weak = app.downgrade();
+    drag.connect_activate(move |_, param| {
+        let (Some(app), Some(json)) = (weak.upgrade(), param.and_then(|p| p.str().map(str::to_string))) else { return };
+        drag::open_window(&app, &json);
+    });
+    app.add_action(&drag);
+
     app.set_accels_for_action("win.copy", &["<Control>c"]);
     app.set_accels_for_action("win.save", &["<Control>s"]);
     app.set_accels_for_action("win.undo", &["<Control>z"]);
@@ -217,20 +232,23 @@ fn handle_command_line(app: &adw::Application, args: &[String], cwd: &std::path:
             }
         }
         Some("dev-editor") => {
-            // shotput dev-editor OUT_DIR [IMAGE]: renders the editor with sample marks, then quits.
+            // shotput dev-editor OUT_DIR [IMAGE] [--scale S] [--showcase]: renders the editor with
+            // sample marks, then quits.
             let out = PathBuf::from(args.get(2).cloned().unwrap_or_else(|| ".".into()));
             let texture = args.get(3).and_then(|p| gdk::Texture::from_filename(p).ok()).unwrap_or_else(editor::dev_sample_image);
+            let scale = args.iter().position(|a| a == "--scale").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(1.0);
+            let showcase = args.iter().any(|a| a == "--showcase");
             let capture = CaptureInfo {
                 id: None,
                 path: None,
-                scale: 1.0,
+                scale,
                 monitor: Some((1920.0, 1080.0)),
                 app_name: None,
                 date: glib::DateTime::now_local().expect("time"),
                 framed: None,
             };
             let e = Editor::open(app, texture, capture);
-            e.dev_populate();
+            if showcase { e.dev_showcase() } else { e.dev_populate() }
             let app = app.clone();
             glib::timeout_add_local_once(std::time::Duration::from_millis(900), move || {
                 let ok = e.dev_render(&out.join("editor-window.png"), &out.join("editor-export.png"));
@@ -458,4 +476,11 @@ button.shotput-swatch.selected .shotput-swatch-dot { min-width: 20px; min-height
 .shotput-tools button { min-width: 34px; }
 .shotput-tools button:checked { background-color: alpha(currentColor, 0.12); }
 textview.shotput-text { padding: 0; }
+window.shotput-drag-window { background: none; }
+.shotput-drag-card { border-radius: 12px; }
+.shotput-drag-icon { border-radius: 8px; }
+.shotput-drag-hint {
+  padding: 4px 10px; border-radius: 999px; font-size: 0.85em; font-weight: 600;
+  color: white; background-color: alpha(black, 0.62);
+}
 "#;

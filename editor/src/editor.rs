@@ -457,6 +457,20 @@ impl Editor {
             "Copy text: reads the text in this screenshot and copies it",
             "win.copy-text",
         );
+        let drag_handle = gtk::Button::from_icon_name("shotput-drag-symbolic");
+        drag_handle.set_tooltip_text(Some("Drag into any app"));
+        drag_handle.set_focus_on_click(false);
+        drag_handle.set_cursor_from_name(Some("grab"));
+        self.attach_drag_source(&drag_handle);
+        {
+            let weak = Rc::downgrade(self);
+            drag_handle.connect_clicked(move |_| {
+                if let Some(e) = weak.upgrade() {
+                    e.show_toast("Drag this button into any app");
+                }
+            });
+        }
+        header.pack_end(&drag_handle);
         header.pack_end(&copy);
         header.pack_end(&save);
         header.pack_end(&read_text);
@@ -1772,6 +1786,37 @@ impl Editor {
         });
     }
 
+    /// Drags the finished image out as a PNG file and as pixels.
+    fn attach_drag_source(self: &Rc<Self>, widget: &impl IsA<gtk::Widget>) {
+        let source = gtk::DragSource::new();
+        source.set_actions(gdk::DragAction::COPY);
+        let weak = Rc::downgrade(self);
+        let staged: Rc<RefCell<Option<gdk::Texture>>> = Rc::new(RefCell::new(None));
+        {
+            let staged = staged.clone();
+            source.connect_prepare(move |_, _, _| {
+                let e = weak.upgrade()?;
+                let full = e.flattened()?;
+                let out = e.output_texture(&full);
+                let png = out.save_to_png_bytes();
+                let name = {
+                    let c = e.capture.borrow();
+                    let template = e.settings.string("filename-template", "Shotput %Y-%m-%d at %H.%M.%S");
+                    format!("{}.png", output::file_name(&template, &c.date, c.app_name.as_deref()))
+                };
+                let path = crate::drag::stage_file(&png, &name)?;
+                staged.replace(Some(out.clone()));
+                Some(crate::drag::content(&path, &out))
+            });
+        }
+        source.connect_drag_begin(move |_, drag| {
+            if let Some(texture) = staged.borrow().as_ref() {
+                crate::drag::set_icon(drag, texture);
+            }
+        });
+        widget.add_controller(source);
+    }
+
     fn copy(self: &Rc<Self>) {
         self.commit_to_capture(|e, png, tex| {
             output::copy_png(&png, &tex);
@@ -1928,15 +1973,42 @@ impl Editor {
         self.show_toast("Copied");
     }
 
+    /// Marks for the website's picture of the editor, placed on site/demo.html's screenshot.
+    pub fn dev_showcase(&self) {
+        let mut m = self.model.borrow_mut();
+        let mut add = |kind: Kind, color: Ink, weight: Weight, filled: bool, bend: Option<P>| {
+            let mut a = Annotation::new(kind, color, weight, filled);
+            a.bend = bend;
+            m.annotations.push(a);
+            m.annotations.last().map(|a| a.id)
+        };
+        add(Kind::Highlight(R::new(286.0, 452.0, 436.0, 24.0)), Ink::Yellow, Weight::Regular, false, None);
+        add(Kind::Redact(R::new(772.0, 449.0, 178.0, 108.0)), Ink::Black, Weight::Regular, false, None);
+        add(Kind::Redact(R::new(890.0, 213.0, 168.0, 22.0)), Ink::Black, Weight::Regular, false, None);
+        add(Kind::Rectangle(R::new(626.0, 287.0, 166.0, 56.0)), Ink::Red, Weight::Regular, false, None);
+        add(Kind::Counter(p(626.0, 287.0), 1), Ink::Blue, Weight::Regular, false, None);
+        add(Kind::Counter(p(272.0, 464.0), 2), Ink::Blue, Weight::Regular, false, None);
+        add(Kind::Text(p(640.0, 628.0), "Button is off-centre at 1200px".into()), Ink::Red, Weight::Regular, true, None);
+        add(Kind::Text(p(640.0, 684.0), "Card is valid, so why overdue?".into()), Ink::Blue, Weight::Regular, true, None);
+        add(Kind::Arrow(p(905.0, 622.0), p(770.0, 352.0)), Ink::Red, Weight::Regular, false, Some(p(885.0, 480.0)));
+        let selected = m.annotations.last().map(|a| a.id);
+        m.set_selected(selected);
+        drop(m);
+        self.sync();
+    }
+
     /// Renders the window and the flattened export to PNG files.
     pub fn dev_render(&self, window_png: &std::path::Path, export_png: &std::path::Path) -> bool {
         let Some(renderer) = self.window.native().and_then(|n| n.renderer()) else { return false };
         let (w, h) = (self.window.width(), self.window.height());
+        // SHOTPUT_DEV_SCALE renders the window sharper than the screen, for the website.
+        let k: f64 = std::env::var("SHOTPUT_DEV_SCALE").ok().and_then(|s| s.parse().ok()).unwrap_or(1.0);
         let paintable = gtk::WidgetPaintable::new(Some(&self.window));
         let snapshot = gtk::Snapshot::new();
+        snapshot.scale(k as f32, k as f32);
         paintable.snapshot(&snapshot, w as f64, h as f64);
         let Some(node) = snapshot.to_node() else { return false };
-        let shot = renderer.render_texture(&node, Some(&gtk::graphene::Rect::new(0.0, 0.0, w as f32, h as f32)));
+        let shot = renderer.render_texture(&node, Some(&gtk::graphene::Rect::new(0.0, 0.0, (w as f64 * k) as f32, (h as f64 * k) as f32)));
         let ok = shot.save_to_png(window_png).is_ok();
         let model = self.model.borrow();
         let flat = render::flatten(&renderer, &self.renderer, &model.base, model.scale, &model.annotations, model.scale);

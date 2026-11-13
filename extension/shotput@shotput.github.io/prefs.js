@@ -83,6 +83,65 @@ function group(title = null, description = null) {
     return new Adw.PreferencesGroup({title: title ?? '', description: description ?? ''});
 }
 
+/** Every GNOME shortcut that could clash with Shotput's, with what it does. */
+const GNOME_BINDING_SCHEMAS = [
+    'org.gnome.desktop.wm.keybindings',
+    'org.gnome.shell.keybindings',
+    'org.gnome.mutter.keybindings',
+    'org.gnome.mutter.wayland.keybindings',
+    'org.gnome.settings-daemon.plugins.media-keys',
+];
+/** GNOME's screenshot shortcuts, which Shotput borrows when the Print Screen switch is on. */
+const BORROWABLE = new Set(['show-screenshot-ui', 'screenshot', 'screenshot-window', 'show-screen-recording-ui']);
+
+const MOD_ALIASES = {control: 'control', ctrl: 'control', primary: 'control', alt: 'alt', mod1: 'alt', shift: 'shift', super: 'super', mod4: 'super', meta: 'meta', hyper: 'hyper'};
+
+function normalizeAccel(accel) {
+    if (!accel)
+        return '';
+    const mods = [...accel.matchAll(/<([^>]+)>/g)].map(m => MOD_ALIASES[m[1].toLowerCase()] ?? m[1].toLowerCase());
+    const key = accel.replace(/<[^>]+>/g, '').toLowerCase();
+    return [...new Set(mods)].sort().map(m => `<${m}>`).join('') + (key === 'sys_req' ? 'print' : key);
+}
+
+/** Maps each accelerator GNOME uses to what it does there: {accel: [{summary, borrowable}]}. */
+function gnomeBindings() {
+    const map = new Map();
+    const add = (accel, summary, borrowable) => {
+        const n = normalizeAccel(accel);
+        if (!n)
+            return;
+        if (!map.has(n))
+            map.set(n, []);
+        map.get(n).push({summary, borrowable});
+    };
+    const source = Gio.SettingsSchemaSource.get_default();
+    for (const id of GNOME_BINDING_SCHEMAS) {
+        const schema = source.lookup(id, true);
+        if (!schema)
+            continue;
+        const settings = new Gio.Settings({settings_schema: schema});
+        for (const key of schema.list_keys()) {
+            const k = schema.get_key(key);
+            const type = k.get_value_type().dup_string();
+            if (type !== 'as' && type !== 's')
+                continue;
+            const accels = type === 'as' ? settings.get_strv(key) : [settings.get_string(key)];
+            const summary = k.get_summary() || key;
+            for (const a of accels)
+                add(a, summary, id === 'org.gnome.shell.keybindings' && BORROWABLE.has(key));
+        }
+    }
+    try {
+        const media = new Gio.Settings({schema_id: 'org.gnome.settings-daemon.plugins.media-keys'});
+        for (const path of media.get_strv('custom-keybindings')) {
+            const custom = new Gio.Settings({schema_id: 'org.gnome.settings-daemon.plugins.media-keys.custom-keybinding', path});
+            add(custom.get_string('binding'), custom.get_string('name') || custom.get_string('command'), false);
+        }
+    } catch {}
+    return map;
+}
+
 function acceleratorLabel(accel) {
     const [ok, key, mods] = Gtk.accelerator_parse(accel);
     return ok ? Gtk.accelerator_get_label(key, mods) : accel;
@@ -359,24 +418,71 @@ export default class ShotputPreferences extends ExtensionPreferences {
     _shortcuts(settings, window) {
         const page = new Adw.PreferencesPage({title: 'Shortcuts', icon_name: 'preferences-desktop-keyboard-shortcuts-symbolic'});
         const list = group(null, 'Click a shortcut, then press the new keys. Backspace clears it, Esc keeps it.');
+        const rows = [];
         for (const [key, title, detail] of ACTIONS) {
             const row = new Adw.ActionRow({title, subtitle: detail});
             const button = new Gtk.Button({valign: Gtk.Align.CENTER, css_classes: ['flat']});
-            const sync = () => {
-                const accels = settings.get_strv(key);
-                button.label = accels.length ? accels.map(acceleratorLabel).join(', ') : 'Record';
-            };
-            sync();
-            settings.connect(`changed::${key}`, sync);
+            const warning = new Gtk.Image({icon_name: 'dialog-warning-symbolic', css_classes: ['warning'], visible: false, valign: Gtk.Align.CENTER});
+            rows.push({key, row, detail, warning});
+            settings.connect(`changed::${key}`, () => syncAll());
             button.connect('clicked', () => this._record(window, title, accel => {
                 if (accel !== null)
                     settings.set_strv(key, accel ? [accel] : []);
             }));
+            row.add_suffix(warning);
             row.add_suffix(button);
             row.activatable_widget = button;
+            rows.at(-1).button = button;
             list.add(row);
         }
+
+        // Shows which shortcuts GNOME or another Shotput action already uses, since the first
+        // one registered wins and the other silently does nothing.
+        const syncAll = () => {
+            const gnome = gnomeBindings();
+            const borrowing = settings.get_boolean('takes-over-screenshot-keys');
+            const ownCount = new Map();
+            for (const {key} of rows) {
+                for (const a of settings.get_strv(key)) {
+                    const n = normalizeAccel(a);
+                    ownCount.set(n, (ownCount.get(n) ?? 0) + 1);
+                }
+            }
+            for (const r of rows) {
+                const accels = settings.get_strv(r.key);
+                r.button.label = accels.length ? accels.map(acceleratorLabel).join(', ') : 'Record';
+                const notes = [];
+                for (const a of accels) {
+                    const n = normalizeAccel(a);
+                    for (const use of gnome.get(n) ?? []) {
+                        if (use.borrowable && borrowing)
+                            continue;
+                        notes.push(`${acceleratorLabel(a)} is also GNOME's “${use.summary}”`);
+                    }
+                    if ((ownCount.get(n) ?? 0) > 1)
+                        notes.push(`${acceleratorLabel(a)} is also another Shotput action`);
+                }
+                r.warning.visible = notes.length > 0;
+                r.warning.tooltip_text = notes.length ? `${notes.join('\n')}\nOnly one of them can have it.` : null;
+                r.row.subtitle = notes.length ? GLib.markup_escape_text(`${notes[0]}. Only one of them can have it.`, -1) : r.detail;
+            }
+        };
+        settings.connect('changed::takes-over-screenshot-keys', () => syncAll());
+        syncAll();
         page.add(list);
+
+        const keys = group('Print Screen', 'Shotput starts on the Print Screen key: Print for an area, Ctrl+Print to annotate, Alt+Print for a window, Shift+Print for the screen. No Print Screen key? Many laptops put it on Fn plus another key, or record a function key such as Shift+F3.');
+        keys.add(switchRow(settings, 'takes-over-screenshot-keys', 'Take the keys from GNOME Screenshot',
+            'GNOME\'s screenshot tool gives up the keys Shotput uses while Shotput is on, and gets them back when it is off. Screen recording stays in Shotput\'s menu and on Ctrl+Shift+Alt+R.'));
+        const resetRow = new Adw.ActionRow({title: 'Default shortcuts'});
+        const resetButton = new Gtk.Button({label: 'Restore', valign: Gtk.Align.CENTER});
+        resetButton.connect('clicked', () => {
+            for (const {key} of rows)
+                settings.reset(key);
+        });
+        resetRow.add_suffix(resetButton);
+        keys.add(resetRow);
+        page.add(keys);
 
         const mouse = group('Use a mouse button', 'Mouse software such as Solaar, Piper or Input Remapper can press any of these shortcuts for you: map a button to "keyboard shortcut" and press the Shotput shortcut you want on it.');
         page.add(mouse);
@@ -389,7 +495,7 @@ export default class ShotputPreferences extends ExtensionPreferences {
         const status = new Adw.StatusPage({
             icon_name: 'preferences-desktop-keyboard-shortcuts-symbolic',
             title: 'Press the new shortcut',
-            description: 'Use Ctrl, Alt or Super with a key, or a function key on its own.\nBackspace clears it. Esc keeps it.',
+            description: 'Use Print Screen or a function key, alone or with Ctrl, Alt or Shift, or Ctrl or Alt with any key.\nBackspace clears it. Esc keeps it.',
         });
         status.add_css_class('compact');
         dialog.set_child(status);
@@ -416,15 +522,17 @@ export default class ShotputPreferences extends ExtensionPreferences {
             if ([Gdk.KEY_Shift_L, Gdk.KEY_Shift_R, Gdk.KEY_Control_L, Gdk.KEY_Control_R, Gdk.KEY_Alt_L, Gdk.KEY_Alt_R,
                 Gdk.KEY_Super_L, Gdk.KEY_Super_R, Gdk.KEY_Meta_L, Gdk.KEY_Meta_R, Gdk.KEY_ISO_Level3_Shift].includes(keyval))
                 return Gdk.EVENT_STOP;
-            const name = Gdk.keyval_name(lower) ?? '';
-            const isFunctionKey = /^F([1-9]|1[0-9]|2[0-4])$/.test(name);
+            // Alt+Print arrives as Sys_Req; GNOME calls both Print.
+            const key = lower === Gdk.KEY_Sys_Req ? Gdk.KEY_Print : lower;
+            const name = Gdk.keyval_name(key) ?? '';
+            const isFunctionKey = /^(F([1-9]|1[0-9]|2[0-4])|Print|Pause|Scroll_Lock|Insert)$/.test(name);
             const hasModifier = (mods & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK)) !== 0;
             if (!isFunctionKey && !hasModifier) {
-                status.description = 'That needs Ctrl, Alt or Super, unless it is a function key.';
+                status.description = 'That needs Ctrl or Alt, unless it is Print Screen or a function key.';
                 window.get_display().beep();
                 return Gdk.EVENT_STOP;
             }
-            finish(Gtk.accelerator_name_with_keycode(null, lower, keycode, mods));
+            finish(Gtk.accelerator_name_with_keycode(null, key, keycode, mods));
             return Gdk.EVENT_STOP;
         });
         dialog.add_controller(keys);
@@ -439,17 +547,18 @@ export default class ShotputPreferences extends ExtensionPreferences {
         const about = group();
         const status = new Adw.StatusPage({
             icon_name: 'camera-photo-symbolic',
-            title: 'Shotput',
-            description: `Version ${this.metadata.version}\n\nScreenshots for pasting. A Linux port of Shotput for macOS, free and open source under the MIT licence. Nothing you capture leaves this machine.`,
+            title: 'Shotput for Linux',
+            description: `Version ${this.metadata['version-name'] ?? this.metadata.version}\n\nScreenshots for pasting. Free and open source under the MIT licence. Nothing you capture leaves this machine.\n\nShotput was designed and built for macOS by keshav-exe. This is a port of it to GNOME, with the same ideas and the same editor.`,
         });
         about.add(status);
-        const links = new Gtk.Box({spacing: 8, halign: Gtk.Align.CENTER});
+        const links = new Gtk.Box({spacing: 8, halign: Gtk.Align.CENTER, homogeneous: false});
         for (const [label, url] of [
-            ['Original Project', 'https://github.com/keshav-exe/shotput'],
-            ['Report an Issue', 'https://github.com/keshav-exe/shotput/issues/new'],
+            ['Website', 'https://shotput.abstergo.fyi'],
+            ['Original Shotput', 'https://github.com/keshav-exe/shotput'],
+            ['Report an Issue', 'https://github.com/Absterrg0/shotput-linux/issues/new'],
         ]) {
             const b = new Gtk.Button({label});
-            b.connect('clicked', () => Gtk.show_uri(null, url, Gdk.CURRENT_TIME));
+            b.connect('clicked', () => new Gtk.UriLauncher({uri: url}).launch(b.get_root(), null, null));
             links.append(b);
         }
         about.add(links);

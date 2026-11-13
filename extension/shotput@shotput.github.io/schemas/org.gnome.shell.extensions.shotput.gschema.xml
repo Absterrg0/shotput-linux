@@ -2,14 +2,18 @@
 <schemalist>
   <schema id="org.gnome.shell.extensions.shotput" path="/org/gnome/shell/extensions/shotput/">
     <!-- Shortcuts -->
-    <key name="shortcut-area" type="as"><default><![CDATA[['<Control><Alt><Super>a']]]></default><summary>Capture area</summary></key>
-    <key name="shortcut-area-annotate" type="as"><default><![CDATA[['<Control><Alt><Super>d']]]></default><summary>Capture area and annotate</summary></key>
-    <key name="shortcut-window" type="as"><default><![CDATA[['<Control><Alt><Super>w']]]></default><summary>Capture window</summary></key>
-    <key name="shortcut-screen" type="as"><default><![CDATA[['<Control><Alt><Super>s']]]></default><summary>Capture screen</summary></key>
-    <key name="shortcut-annotate-last" type="as"><default><![CDATA[['<Control><Alt><Super>e']]]></default><summary>Annotate last capture</summary></key>
+    <key name="shortcut-area" type="as"><default><![CDATA[['Print']]]></default><summary>Capture area</summary></key>
+    <key name="shortcut-area-annotate" type="as"><default><![CDATA[['<Control>Print']]]></default><summary>Capture area and annotate</summary></key>
+    <key name="shortcut-window" type="as"><default><![CDATA[['<Alt>Print']]]></default><summary>Capture window</summary></key>
+    <key name="shortcut-screen" type="as"><default><![CDATA[['<Shift>Print']]]></default><summary>Capture screen</summary></key>
+    <key name="shortcut-annotate-last" type="as"><default><![CDATA[['<Control><Alt>Print']]]></default><summary>Annotate last capture</summary></key>
     <key name="shortcut-repeat-area" type="as"><default><![CDATA[[]]]></default><summary>Repeat last area</summary></key>
-    <key name="shortcut-text" type="as"><default><![CDATA[['<Control><Alt><Super>t']]]></default><summary>Copy text from area</summary></key>
+    <key name="shortcut-text" type="as"><default><![CDATA[['<Control><Shift>Print']]]></default><summary>Copy text from area</summary></key>
     <key name="shortcut-annotate-clipboard" type="as"><default><![CDATA[[]]]></default><summary>Annotate clipboard image</summary></key>
+
+    <key name="takes-over-screenshot-keys" type="b"><default>true</default><summary>Use the Print Screen keys</summary><description>While Shotput is on, the Print Screen shortcuts it uses are taken from GNOME's screenshot tool, and given back when it is turned off.</description></key>
+    <key name="released-gnome-keys" type="s"><default>'{}'</default><summary>Shortcuts borrowed from GNOME</summary><description>JSON of the GNOME screenshot shortcuts Shotput is holding, so they can be given back.</description></key>
+    <key name="shortcuts-version" type="i"><default>0</default><summary>Shortcut defaults version</summary></key>
 
     <!-- General -->
     <key name="shows-panel-icon" type="b"><default>true</default><summary>Show in the top bar</summary></key>

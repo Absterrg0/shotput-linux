@@ -1,9 +1,14 @@
 {
   "uuid": "shotput@shotput.github.io",
   "name": "Shotput",
-  "description": "Screenshots for pasting. Press a shortcut, drag an area, paste it into your agent. Annotate first when the picture needs a pointer.\n\nA Linux port of Shotput for macOS.",
-  "shell-version": ["48", "49", "50"],
+  "description": "Screenshots for pasting. Press Print Screen, drag an area, and it is on the clipboard when you let go. Annotate first when the picture needs a pointer.\n\nA Linux port of Shotput for macOS by keshav-exe (github.com/keshav-exe/shotput). Needs the Shotput app: shotput.abstergo.fyi",
+  "shell-version": [
+    "48",
+    "49",
+    "50"
+  ],
   "settings-schema": "org.gnome.shell.extensions.shotput",
-  "url": "https://github.com/keshav-exe/shotput",
-  "version": 1
+  "url": "https://github.com/Absterrg0/shotput-linux",
+  "version": 2,
+  "version-name": "1.1.0"
 }

@@ -1,0 +1,58 @@
+name: Release
+
+# Builds the editor on Debian 13 (GTK 4.18, libadwaita 1.7, glibc 2.41), so one download runs on
+# every distribution with GNOME 48 or newer: Debian 13, Ubuntu 25.04+, Fedora 42+, Arch and so on.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+          - runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: debian:trixie
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config \
+            libgtk-4-dev libadwaita-1-dev libglib2.0-dev-bin zip
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@v4
+      - name: Test
+        run: cd editor && cargo test --release --locked
+      - name: Package
+        run: scripts/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shotput-${{ matrix.runner }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+            dist/*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --title "Shotput for Linux ${GITHUB_REF_NAME#v}" --generate-notes || \
+          gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber

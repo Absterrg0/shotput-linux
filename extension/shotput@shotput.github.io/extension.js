@@ -19,6 +19,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import {SelectionOverlay} from './overlay.js';
 import {PreviewController, Shelf, Hud, flash} from './preview.js';
 import {PinStore, Indicator, acceleratorLabel} from './pins.js';
+import {GnomeKeyHandoff, SHORTCUT_KEYS, migrateShortcuts} from './keys.js';
 
 Gio._promisify(Shell.Screenshot.prototype, 'screenshot_stage_to_content');
 Gio._promisify(Shell.Screenshot, 'composite_to_stream');
@@ -184,6 +185,23 @@ export default class ShotputExtension extends Extension {
         // The installer pointed a GNOME custom shortcut at `shotput` until this loaded; retire it
         // first, so the extension's own shortcut takes over the key.
         this._migrateCustomKeybindings();
+        migrateShortcuts(this.settings);
+        // Print Screen keys GNOME's screenshot tool also uses are borrowed while Shotput is on.
+        this._keys = new GnomeKeyHandoff(this.settings);
+        try {
+            this._keys.sync();
+        } catch (e) {
+            logError(e, 'Shotput: borrowing screenshot keys');
+        }
+        for (const key of [...SHORTCUT_KEYS, 'takes-over-screenshot-keys']) {
+            this._signals.push([this.settings, this.settings.connect(`changed::${key}`, () => {
+                try {
+                    this._keys?.sync();
+                } catch (e) {
+                    logError(e, 'Shotput: syncing screenshot keys');
+                }
+            })]);
+        }
         for (const [key, action] of Object.entries(SHORTCUTS)) {
             Main.wm.addKeybinding(key, this.settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
                 Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
@@ -244,6 +262,12 @@ export default class ShotputExtension extends Extension {
         this._overlay = null;
         for (const key of Object.keys(SHORTCUTS))
             Main.wm.removeKeybinding(key);
+        try {
+            this._keys?.restore();
+        } catch (e) {
+            logError(e, 'Shotput: giving back screenshot keys');
+        }
+        this._keys = null;
         for (const [obj, id] of this._signals)
             obj.disconnect(id);
         this._signals = [];
@@ -713,6 +737,28 @@ export default class ShotputExtension extends Extension {
             });
     }
 
+    /**
+     * Hands a capture to a small window in the editor app, because on Wayland a drag into another
+     * app has to start from that app's own window. It appears exactly where the preview was.
+     */
+    async dragCapture(capture, frame) {
+        await capture.ensureFile();
+        const template = this.settings.get_string('filename-template');
+        const name = `${fileName(template, capture.date, capture.appName)}.png`;
+        this._placement = {kind: 'drag', frame, until: GLib.get_monotonic_time() + 6 * 1e6};
+        const json = JSON.stringify({path: capture.path, name, width: Math.round(frame.width), height: Math.round(frame.height)});
+        Gio.DBus.session.call(EDITOR_ID, EDITOR_PATH, 'org.gtk.Actions', 'Activate',
+            new GLib.Variant('(sava{sv})', ['drag', [new GLib.Variant('s', json)], {}]),
+            null, Gio.DBusCallFlags.NONE, 10000, null, (conn, res) => {
+                try {
+                    conn.call_finish(res);
+                } catch (e) {
+                    this._placement = null;
+                    this.hud.show('Update the Shotput app to drag captures', 'dialog-warning-symbolic');
+                }
+            });
+    }
+
     openPinned(pin) {
         try {
             const path = this.pins.path(pin);
@@ -736,6 +782,13 @@ export default class ShotputExtension extends Extension {
                 return;
             const placement = this._placement && GLib.get_monotonic_time() < this._placement.until ? this._placement : null;
             this._placement = null;
+            if (placement?.kind === 'drag') {
+                const {x, y} = placement.frame;
+                window.move_frame(true, Math.round(x), Math.round(y));
+                window.make_above();
+                Main.activateWindow(window);
+                return;
+            }
             if (placement) {
                 const f = window.get_frame_rect();
                 const work = placement.work;

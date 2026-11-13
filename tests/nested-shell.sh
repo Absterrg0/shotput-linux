@@ -24,7 +24,9 @@ setsid dbus-run-session -- bash -c '
   gsettings set org.gnome.shell welcome-dialog-last-shown-version "999"
   gsettings set org.gnome.desktop.interface color-scheme prefer-dark
   dbus-update-activation-environment WAYLAND_DISPLAY=shotput-test XDG_CONFIG_HOME="$XDG_CONFIG_HOME" XDG_DATA_HOME="$XDG_DATA_HOME" XDG_CACHE_HOME="$XDG_CACHE_HOME" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" GDK_BACKEND=wayland
-  exec gnome-shell --headless --virtual-monitor 1280x800 --wayland-display shotput-test --no-x11
+  monitors=""
+  for m in ${SHOTPUT_TEST_MONITORS:-1280x800}; do monitors="$monitors --virtual-monitor $m"; done
+  exec gnome-shell --headless $monitors --wayland-display shotput-test --no-x11
 ' "$T" > "$T/shell.log" 2>&1 &
 echo $! > "$T/pid"
 for i in $(seq 1 60); do

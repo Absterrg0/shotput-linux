@@ -47,7 +47,7 @@
 .shotput-preview-buttons { spacing: 6px; }
 
 .shotput-glass-button {
-  width: 32px; height: 32px;
+  width: 30px; height: 30px;
   border-radius: 999px;
   color: white;
   background-color: rgba(255, 255, 255, 0.16);

@@ -17,20 +17,30 @@ const MARGIN = 20;
 const CHIP_RADIUS = 14;
 
 /** An St.ImageContent of the pixbuf, cropped to fill `w` × `h` (cover), at the stage's scale. */
+/** The sharpest scale any monitor draws at, so thumbnails stay crisp on HiDPI and fractional screens. */
+export function displayScale() {
+    let scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+    for (let i = 0; i < global.display.get_n_monitors(); i++)
+        scale = Math.max(scale, global.display.get_monitor_scale(i));
+    return scale;
+}
+
 export function coverContent(pixbuf, w, h) {
-    const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+    const scale = displayScale();
     const tw = Math.max(1, Math.round(w * scale)), th = Math.max(1, Math.round(h * scale));
     const pw = pixbuf.get_width(), ph = pixbuf.get_height();
     const fill = Math.max(tw / pw, th / ph);
     const cw = Math.min(pw, Math.round(tw / fill)), ch = Math.min(ph, Math.round(th / fill));
     const sub = pixbuf.new_subpixbuf(Math.floor((pw - cw) / 2), Math.floor((ph - ch) / 2), cw, ch);
     const scaled = fill < 1 ? sub.scale_simple(tw, th, GdkPixbuf.InterpType.BILINEAR) : sub.copy();
-    return imageContent(scaled);
+    return imageContent(scaled, scale);
 }
 
-export function imageContent(pixbuf) {
+/** Pixels drawn at `scale` pixels per point. */
+export function imageContent(pixbuf, scale = 1) {
     const coglContext = global.stage.context.get_backend().get_cogl_context();
-    const content = St.ImageContent.new_with_preferred_size(pixbuf.get_width(), pixbuf.get_height());
+    const content = St.ImageContent.new_with_preferred_size(
+        Math.round(pixbuf.get_width() / scale), Math.round(pixbuf.get_height() / scale));
     content.set_bytes(
         coglContext, pixbuf.read_pixel_bytes(),
         pixbuf.get_has_alpha() ? Cogl.PixelFormat.RGBA_8888 : Cogl.PixelFormat.RGB_888,
@@ -74,7 +84,7 @@ export class PreviewController {
         this.dismiss(false);
         const point = capture.pointSize;
         const fit = Math.min(232 / Math.max(point.width, 1), 148 / Math.max(point.height, 1), 1);
-        const w = Math.round(Math.max(point.width * fit, 140));
+        const w = Math.round(Math.max(point.width * fit, 208));
         const h = Math.round(Math.max(point.height * fit, 84));
         const frame = this._frame(w, h, capture);
 
@@ -85,7 +95,7 @@ export class PreviewController {
         const image = new St.Widget({x_expand: true, y_expand: true, style_class: 'shotput-preview-image'});
         // Small captures sit centred at their real size. Larger ones fill the thumbnail.
         if (point.width <= w && point.height <= h) {
-            image.set_content(imageContent(capture.pixbuf));
+            image.set_content(imageContent(capture.pixbuf, capture.scale));
             image.set_content_gravity(Clutter.ContentGravity.CENTER);
         } else {
             image.set_content(coverContent(capture.pixbuf, w, h));
@@ -125,6 +135,18 @@ export class PreviewController {
         buttons.add_child(button('document-save-symbolic', 'Save', () => {
             this.dismiss();
             this._shotput.saveCapture(capture);
+        }));
+        buttons.add_child(button('shotput-drag-symbolic', 'Drag into an app', () => {
+            // The editor app takes over at the same spot, since only an app window can start a
+            // drag into another app on Wayland.
+            const [x, y] = actor.get_transformed_position();
+            this._cancelTimer();
+            this._shotput.dragCapture(capture, {x, y, width: w, height: h});
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 220, () => {
+                if (this._actor === actor)
+                    this.dismiss(false);
+                return GLib.SOURCE_REMOVE;
+            });
         }));
         buttons.add_child(button('shotput-pin-symbolic', 'Pin to the top bar', () => {
             if (this._shotput.pins.pin(capture))
