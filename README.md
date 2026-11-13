@@ -22,8 +22,8 @@ curl -fsSL https://shotput.abstergo.fyi/install.sh | bash
 Then log out and back in once (GNOME loads a new extension at login) and press **Print Screen**.
 
 No root needed. It installs `~/.local/bin/shotput`, the app entry and the GNOME Shell extension,
-and sets up Tesseract for "Copy text" when it can. Needs GNOME 48, 49 or 50 (Fedora 42+,
-Ubuntu 25.04+, Debian 13, Arch and others), on x86_64 or arm64.
+and sets up Tesseract for "Copy text" when it can. Needs GNOME 46 to 50: Ubuntu 24.04 LTS and
+newer, Fedora 40+, Debian 13, Arch and others, on x86_64 or arm64.
 
 Prefer to look first? Download `shotput-linux-x86_64.tar.gz` (or `-aarch64`) from
 [Releases](https://github.com/Absterrg0/shotput-linux/releases/latest), unpack it and run
@@ -125,6 +125,7 @@ corners, and "Copy text" copies the text in the screenshot.
 ## Differences from the Mac version
 
 - Captures live in a GNOME Shell extension, since Wayland gives apps no way to freeze the screen.
+  It works on GNOME 46 to 50; `tests/containers/` runs GNOME 46 (Ubuntu 24.04) headless for testing.
 - GNOME's top bar keeps right clicks, so pins and the capture menu share one menu.
 - Dragging into apps goes through the small drag card described above.
 - Text recognition uses Tesseract instead of Apple's Vision; saving offers PNG and JPEG.
@@ -139,7 +140,7 @@ tests/sh-eval.sh 'sp().run("area")'            # drive it (after loading tests/d
 scripts/package.sh                             # builds dist/shotput-linux-ARCH.tar.gz
 ```
 
-Pushing a `v*` tag builds releases for x86_64 and arm64 on Debian 13 (see
+Pushing a `v*` tag builds releases for x86_64 and arm64 on Ubuntu 24.04 (see
 `.github/workflows/release.yml`). The website lives in `site/`.
 
 ## Credits and licence

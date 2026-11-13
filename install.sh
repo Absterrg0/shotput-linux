@@ -39,7 +39,7 @@ else
 fi
 
 if ldd "$binary" 2>/dev/null | grep -q "not found"; then
-  echo "Shotput needs GTK 4.18 and libadwaita 1.7 or newer (GNOME 48 or later). Missing:"
+  echo "Shotput needs GTK 4.14 and libadwaita 1.5 or newer (GNOME 46 or later). Missing:"
   ldd "$binary" | grep "not found" | sed 's/^/    /'
   hint_packages
   exit 1
@@ -79,8 +79,8 @@ shell_major=$(gnome-shell --version 2>/dev/null | sed -n 's/GNOME Shell \([0-9]*
 if [ -z "$shell_major" ]; then
   note "GNOME Shell was not found. The editor works, and captures go through your desktop's"
   note "screenshot portal instead of the extension."
-elif [ "$shell_major" -lt 48 ] || [ "$shell_major" -gt 50 ]; then
-  note "This is GNOME $shell_major; the extension is made for GNOME 48 to 50 and may not load."
+elif [ "$shell_major" -lt 46 ] || [ "$shell_major" -gt 50 ]; then
+  note "This is GNOME $shell_major; the extension is made for GNOME 46 to 50 and may not load."
 fi
 
 step "Setting up text recognition"
