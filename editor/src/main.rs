@@ -12,6 +12,7 @@ mod editor;
 mod model;
 mod output;
 mod render;
+mod segmented;
 mod settings;
 
 use adw::prelude::*;

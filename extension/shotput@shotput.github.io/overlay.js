@@ -10,6 +10,7 @@ import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {CircleMask} from './effects.js';
+import {setCursor, resetCursor} from './compat.js';
 
 const SNAP_DISTANCE = 7;
 const LOUPE_SIZE = 116;
@@ -176,7 +177,7 @@ export class SelectionOverlay {
 
     _updateCursor() {
         // A hand over windows, and a crosshair for areas.
-        this.actor.set_cursor_type(this.mode === 'window' ? Clutter.CursorType.POINTER : Clutter.CursorType.CROSSHAIR);
+        setCursor(this.actor, this.mode === 'window' ? 'pointer' : 'crosshair');
     }
 
     finish(outcome) {
@@ -188,6 +189,7 @@ export class SelectionOverlay {
             Main.popModal(this._grab);
             this._grab = null;
         }
+        resetCursor();
         // Destroying emits leave-event, so drop the reference first.
         const actor = this.actor;
         this.actor = null;

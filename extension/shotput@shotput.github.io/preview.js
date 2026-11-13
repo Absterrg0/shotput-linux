@@ -12,6 +12,7 @@ import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {RoundedMask} from './effects.js';
+import {imageContent as compatImageContent} from './compat.js';
 
 const MARGIN = 20;
 const CHIP_RADIUS = 14;
@@ -38,14 +39,10 @@ export function coverContent(pixbuf, w, h) {
 
 /** Pixels drawn at `scale` pixels per point. */
 export function imageContent(pixbuf, scale = 1) {
-    const coglContext = global.stage.context.get_backend().get_cogl_context();
-    const content = St.ImageContent.new_with_preferred_size(
-        Math.round(pixbuf.get_width() / scale), Math.round(pixbuf.get_height() / scale));
-    content.set_bytes(
-        coglContext, pixbuf.read_pixel_bytes(),
+    return compatImageContent(pixbuf.read_pixel_bytes(),
         pixbuf.get_has_alpha() ? Cogl.PixelFormat.RGBA_8888 : Cogl.PixelFormat.RGB_888,
-        pixbuf.get_width(), pixbuf.get_height(), pixbuf.get_rowstride());
-    return content;
+        pixbuf.get_width(), pixbuf.get_height(), pixbuf.get_rowstride(),
+        Math.round(pixbuf.get_width() / scale), Math.round(pixbuf.get_height() / scale));
 }
 
 function iconFor(dir, name) {

@@ -1,7 +1,7 @@
 name: Release
 
-# Builds the editor on Debian 13 (GTK 4.18, libadwaita 1.7, glibc 2.41), so one download runs on
-# every distribution with GNOME 48 or newer: Debian 13, Ubuntu 25.04+, Fedora 42+, Arch and so on.
+# Builds the editor on Ubuntu 24.04 (GTK 4.14, libadwaita 1.5, glibc 2.39), so one download runs on
+# every distribution with GNOME 46 or newer: Ubuntu 24.04+, Debian 13, Fedora 40+, Arch and so on.
 on:
   push:
     tags: ['v*']
@@ -18,15 +18,19 @@ jobs:
           - runner: ubuntu-24.04
           - runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    container: debian:trixie
     steps:
       - name: Install build dependencies
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config \
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config \
             libgtk-4-dev libadwaita-1-dev libglib2.0-dev-bin zip
-          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          if ! command -v rustup >/dev/null; then
+            curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install stable --profile minimal
+          rustup default stable
       - uses: actions/checkout@v5
       - name: Test
         run: cd editor && cargo test --release --locked

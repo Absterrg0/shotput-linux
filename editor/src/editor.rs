@@ -7,6 +7,7 @@ use crate::canvas::Canvas;
 use crate::model::*;
 use crate::output;
 use crate::render::{self, grect, BaseImage, Renderer, View};
+use crate::segmented::Segmented;
 use crate::settings::Settings;
 use adw::prelude::*;
 use gtk::{gdk, gio, glib, gsk};
@@ -261,7 +262,7 @@ struct Ui {
     copy: gtk::Button,
     save: gtk::Button,
     read_text: gtk::Button,
-    bg_choice: adw::ToggleGroup,
+    bg_choice: Segmented,
     bg_color: gtk::ColorDialogButton,
     bg_color_row: gtk::Box,
     bg_padding: gtk::Scale,
@@ -615,7 +616,7 @@ impl Editor {
     #[allow(clippy::type_complexity)]
     fn build_background_popover(
         self: &Rc<Self>,
-    ) -> (gtk::MenuButton, (adw::ToggleGroup, gtk::ColorDialogButton, gtk::Box, gtk::Scale, gtk::Label, gtk::Box)) {
+    ) -> (gtk::MenuButton, (Segmented, gtk::ColorDialogButton, gtk::Box, gtk::Scale, gtk::Label, gtk::Box)) {
         let button = gtk::MenuButton::new();
         button.set_icon_name("shotput-background-symbolic");
         button.set_tooltip_text(Some("Background"));
@@ -629,15 +630,9 @@ impl Editor {
         content.set_margin_end(14);
         content.set_width_request(300);
 
-        let choice = adw::ToggleGroup::new();
-        for (name, label) in [("none", "None"), ("wallpaper", "Wallpaper"), ("color", "Colour")] {
-            let toggle = adw::Toggle::new();
-            toggle.set_name(Some(name));
-            toggle.set_label(Some(label));
-            choice.add(toggle);
-        }
+        let choice = Segmented::new(&[("none", "None"), ("wallpaper", "Wallpaper"), ("color", "Colour")]);
         choice.set_active_name(Some("none"));
-        content.append(&choice);
+        content.append(&choice.widget);
 
         let color_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let color_label = gtk::Label::new(Some("Colour"));
@@ -1037,8 +1032,13 @@ impl Editor {
         }
     }
 
+    /// The system accent colour (libadwaita 1.6 and later), or GNOME's blue before that.
     fn accent(&self) -> gdk::RGBA {
-        adw::StyleManager::default().accent_color_rgba()
+        let style = adw::StyleManager::default();
+        if style.find_property("accent-color-rgba").is_some() {
+            return style.property::<gdk::RGBA>("accent-color-rgba");
+        }
+        gdk::RGBA::new(0.208, 0.518, 0.894, 1.0)
     }
 
     fn draw_selection(&self, snapshot: &gtk::Snapshot, selected: &Annotation, view: View) {
@@ -1550,7 +1550,7 @@ impl Editor {
 
     fn sync_background_rows(&self) {
         if let Some(ui) = self.ui.borrow().as_ref() {
-            let choice = ui.bg_choice.active_name().map(|s| s.to_string()).unwrap_or_default();
+            let choice = ui.bg_choice.active_name().unwrap_or_default();
             ui.bg_color_row.set_visible(choice == "color");
             ui.bg_padding_row.set_visible(choice != "none");
         }

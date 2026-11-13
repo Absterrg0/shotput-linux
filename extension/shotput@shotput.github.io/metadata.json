@@ -3,6 +3,8 @@
   "name": "Shotput",
   "description": "Screenshots for pasting. Press Print Screen, drag an area, and it is on the clipboard when you let go. Annotate first when the picture needs a pointer.\n\nA Linux port of Shotput for macOS by keshav-exe (github.com/keshav-exe/shotput). Needs the Shotput app: shotput.abstergo.fyi",
   "shell-version": [
+    "46",
+    "47",
     "48",
     "49",
     "50"
