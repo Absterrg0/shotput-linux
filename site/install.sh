@@ -31,13 +31,19 @@ for tool in curl tar sha256sum; do
 done
 
 name="shotput-linux-$arch"
-url="https://github.com/$REPO/releases/latest/download/$name.tar.gz"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
+# This site keeps a copy of every release, for networks where GitHub's download host is slow or
+# blocked; GitHub is the fallback.
+fetch() {
+  curl -fsSL --connect-timeout 10 --max-time 300 "$1/$name.tar.gz" -o "$tmp/$name.tar.gz" &&
+    curl -fsSL --connect-timeout 10 --max-time 60 "$1/$name.tar.gz.sha256" -o "$tmp/$name.tar.gz.sha256"
+}
 printf '\033[1m==> Downloading Shotput for Linux (%s)\033[0m\n' "$arch"
-curl -fsSL "$url" -o "$tmp/$name.tar.gz"
-curl -fsSL "$url.sha256" -o "$tmp/$name.tar.gz.sha256"
+fetch "https://shotput.abstergo.fyi/download" ||
+  fetch "https://github.com/$REPO/releases/latest/download" ||
+  { echo "Could not download Shotput. Check your connection, or get it from https://github.com/$REPO/releases"; exit 1; }
 ( cd "$tmp" && sha256sum -c --quiet "$name.tar.gz.sha256" ) || { echo "The download did not match its checksum."; exit 1; }
 tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
 "$tmp/$name/install.sh"

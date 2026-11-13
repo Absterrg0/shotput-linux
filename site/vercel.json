@@ -1,21 +1,53 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "bash build.sh",
+  "outputDirectory": ".",
+  "installCommand": "",
+  "framework": null,
   "cleanUrls": true,
   "headers": [
     {
       "source": "/install.sh",
       "headers": [
-        { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
-        { "key": "Cache-Control", "value": "public, max-age=300" }
+        {
+          "key": "Content-Type",
+          "value": "text/plain; charset=utf-8"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=300"
+        }
       ]
     },
     {
       "source": "/assets/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400"
+        }
+      ]
+    },
+    {
+      "source": "/download/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=300"
+        }
+      ]
     }
   ],
   "redirects": [
-    { "source": "/github", "destination": "https://github.com/Absterrg0/shotput-linux", "permanent": false },
-    { "source": "/download", "destination": "https://github.com/Absterrg0/shotput-linux/releases/latest", "permanent": false }
+    {
+      "source": "/github",
+      "destination": "https://github.com/Absterrg0/shotput-linux",
+      "permanent": false
+    },
+    {
+      "source": "/download",
+      "destination": "https://github.com/Absterrg0/shotput-linux/releases/latest",
+      "permanent": false
+    }
   ]
 }
