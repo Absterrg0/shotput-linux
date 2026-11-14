@@ -163,3 +163,13 @@ impl<'a> Surface<'a> {
         self
     }
 }
+
+/// Changes the keyboard mode of a window that is already a layer surface.
+pub fn set_keyboard(window: &gtk::Window, mode: Keyboard) {
+    if !available() {
+        return;
+    }
+    if let Some(f) = symbol::<SetIntFn>("gtk_layer_set_keyboard_mode") {
+        unsafe { f(raw(window), mode as c_int) };
+    }
+}

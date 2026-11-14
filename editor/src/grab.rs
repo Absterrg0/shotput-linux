@@ -4,7 +4,9 @@
 use crate::desktop::{self, Desktop};
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
+use std::cell::RefCell;
 use std::io::Read;
+use std::rc::Rc;
 
 pub struct Still {
     pub monitor: gdk::Monitor,
@@ -36,39 +38,58 @@ pub fn grab(done: impl FnOnce(Result<Vec<Still>, String>) + 'static) {
     }
     match desktop::current() {
         Desktop::Kde => {
-            glib::MainContext::default().spawn_local(async move {
-            let mut stills = Vec::new();
-            for monitor in &monitors {
-                match kwin_screen(monitor).await {
-                    Ok(texture) => stills.push(Still { monitor: monitor.clone(), geometry: monitor.geometry(), texture }),
+            let fallback = monitors.clone();
+            grab_all(monitors, |m| async move { kwin_screen(&m).await }, move |results| {
+                match collect(results) {
+                    Ok(stills) => done(Ok(stills)),
                     Err(err) => {
                         // KWin refuses apps it has not been told about; the portal still works.
                         eprintln!("shotput: KWin screenshot failed ({err}), using the portal");
-                        portal(monitors, done);
-                        return;
+                        portal(fallback, done);
                     }
                 }
-            }
-            done(Ok(stills));
             });
         }
         Desktop::Hyprland | Desktop::Sway if glib::find_program_in_path("grim").is_some() => {
-            glib::MainContext::default().spawn_local(async move {
-                let mut stills = Vec::new();
-                for monitor in &monitors {
-                    match grim(monitor).await {
-                        Ok(texture) => stills.push(Still { monitor: monitor.clone(), geometry: monitor.geometry(), texture }),
-                        Err(err) => {
-                            done(Err(err));
-                            return;
-                        }
-                    }
-                }
-                done(Ok(stills));
-            });
+            grab_all(monitors, |m| async move { grim(&m).await }, move |results| done(collect(results)));
         }
         _ => portal(monitors, done),
     }
+}
+
+type Grabbed = (gdk::Monitor, Result<gdk::Texture, String>);
+type GrabDone = Box<dyn FnOnce(Vec<Grabbed>)>;
+
+/// Grabs every monitor at once rather than one after another, then calls back in monitor order.
+fn grab_all<F, Fut>(monitors: Vec<gdk::Monitor>, one: F, done: impl FnOnce(Vec<Grabbed>) + 'static)
+where
+    F: Fn(gdk::Monitor) -> Fut,
+    Fut: std::future::Future<Output = Result<gdk::Texture, String>> + 'static,
+{
+    let results: Rc<RefCell<Vec<Option<Grabbed>>>> = Rc::new(RefCell::new(vec![None; monitors.len()]));
+    let done: Rc<RefCell<Option<GrabDone>>> = Rc::new(RefCell::new(Some(Box::new(done))));
+    for (i, monitor) in monitors.into_iter().enumerate() {
+        let grab = one(monitor.clone());
+        let results = results.clone();
+        let done = done.clone();
+        glib::MainContext::default().spawn_local(async move {
+            let result = grab.await;
+            results.borrow_mut()[i] = Some((monitor, result));
+            if results.borrow().iter().all(Option::is_some) {
+                let all = results.borrow_mut().drain(..).flatten().collect();
+                if let Some(done) = done.borrow_mut().take() {
+                    done(all);
+                }
+            }
+        });
+    }
+}
+
+fn collect(results: Vec<Grabbed>) -> Result<Vec<Still>, String> {
+    results
+        .into_iter()
+        .map(|(monitor, result)| result.map(|texture| Still { geometry: monitor.geometry(), monitor, texture }))
+        .collect()
 }
 
 // MARK: KDE Plasma

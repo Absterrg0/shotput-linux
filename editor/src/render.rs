@@ -368,10 +368,12 @@ fn stroke(cr: &cairo::Context, a: &Annotation) {
     set(cr, a.color.halo());
     cr.set_line_width(width + HALO_WIDTH * 2.0);
     let _ = cr.stroke();
+    // Fill is a solid shape in the ink, covering what is behind it like a sticker, with the
+    // same halo and shadow as the outline so it still reads on any background.
     if a.filled && a.tool().supports_fill() {
         if let Some(path) = &path {
             cr.append_path(path);
-            set(cr, a.color.rgba().with_alpha(0.2));
+            set(cr, a.color.rgba());
             let _ = cr.fill();
         }
     }

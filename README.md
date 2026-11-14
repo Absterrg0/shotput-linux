@@ -76,12 +76,23 @@ shortcut only, so another program cannot use Shotput to read your screen.
 
 ## Selecting
 
-- The screen freezes while you select, so open menus and hover states stay put.
+- The screen freezes while you select, so open menus and hover states stay put. The dim fades in
+  over the frozen picture and fades back out when you finish, so the screen never blinks.
 - The crosshair snaps to window edges, the screen edges and the top bar. The guides turn blue when
   snapped. Hold Ctrl to place freely.
-- Space switches between area and window. While dragging, hold Space to move the selection and
-  Shift to keep it square.
-- Esc or a right click cancels. Works across monitors and with fractional scaling.
+- **Space** or **Tab** switches between area and window. While dragging, hold Space to move the
+  selection and Shift to keep it square.
+- **Enter** captures the whole screen under the pointer (or the window under it in window mode).
+- **Arrow keys** move the crosshair one pixel at a time (Shift for 10), for exact edges with the
+  magnifier. GNOME only; other desktops do not let apps move the pointer.
+- A right click while dragging starts over; a right click or **Esc** otherwise cancels. A click
+  without a drag leaves you selecting rather than closing.
+- The first few times, a bar at the bottom shows these keys. It steps aside when you get near it.
+  The hint setting (Settings → Selecting) can keep it on or turn it off.
+- Lines sit on whole screen pixels, so the frame stays crisp with fractional scaling. Works across
+  monitors.
+- On Hyprland, add `layerrule = noanim, shotput-selection` to your config so Hyprland's own
+  layer animation does not play over the overlay's fade.
 
 ## After a capture
 
@@ -107,8 +118,8 @@ Settings.
 |---|---|---|
 | Arrow | A | Shift snaps to 45° steps. Drag the middle handle to curve it. |
 | Line | L | Drag the middle handle to curve it, double click it to straighten. |
-| Rectangle | R | Shift for a square. Fill tints the inside. |
-| Ellipse | O | Shift for a circle. |
+| Rectangle | R | Shift for a square. Fill makes it a solid shape that covers what is behind. |
+| Ellipse | O | Shift for a circle. Fill makes it solid too. |
 | Text | T | Return finishes, Shift+Return adds a line. Double click to edit. |
 | Step number | N | Counts up on each click. |
 | Pen | P | Sketch a line, arrow, rectangle, or circle and it becomes one. Ctrl+Z keeps the sketch. |

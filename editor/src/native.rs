@@ -84,6 +84,8 @@ fn grab_then(app: &adw::Application, then: impl FnOnce(Vec<Still>) + 'static) {
     if BUSY.with(|b| b.replace(true)) {
         return;
     }
+    // An overlay still fading out must not end up in the new still.
+    crate::overlay::flush_fading();
     let app = app.clone();
     grab::grab(move |result| {
         BUSY.with(|b| b.set(false));
@@ -203,15 +205,15 @@ fn play_sound(settings: &Settings) {
 }
 
 /// What happens after a capture, in the order the extension does it: sound, clipboard, save,
-/// then the preview or the editor.
+/// then the preview or the editor. The clipboard and the editor take the texture straight away;
+/// the PNG file (for dragging, saving and "annotate last") is encoded off the main thread, so a
+/// large capture never stalls the screen.
 pub fn deliver(app: &adw::Application, texture: gdk::Texture, scale: f64, app_name: Option<String>, action: &str) {
     crate::debug!("deliver {action} {}x{} at {scale}", texture.width(), texture.height());
     let settings = Settings::new();
     play_sound(&settings);
     let id = glib::uuid_string_random().to_string();
     let path = captures_dir().join(format!("{id}.png"));
-    let png = texture.save_to_png_bytes();
-    let _ = std::fs::write(&path, &png);
     let capture = Capture {
         id,
         texture: texture.clone(),
@@ -224,18 +226,38 @@ pub fn deliver(app: &adw::Application, texture: gdk::Texture, scale: f64, app_na
 
     if action == "text" {
         copy_text_from(app, &texture);
+        write_png(&capture, || {});
         return;
     }
     copy_capture(&capture, &settings);
-    if settings.boolean("saves-every-capture", false) {
-        save_capture(&capture, &settings);
-    }
     let after = settings.string("after-capture", "preview");
-    if action == "annotate" || after == "editor" {
+    let editor = action == "annotate" || after == "editor";
+    if editor {
         open_editor(app, &capture);
-    } else if after == "preview" {
-        crate::npreview::show(app, &capture);
     }
+    let app = app.clone();
+    let written = capture.clone();
+    write_png(&capture, move || {
+        if settings.boolean("saves-every-capture", false) {
+            save_capture(&written, &settings);
+        }
+        if !editor && after == "preview" {
+            crate::npreview::show(&app, &written);
+        }
+    });
+}
+
+/// Encodes the capture to its PNG file on a worker thread, then calls back on the main thread.
+fn write_png(capture: &Capture, then: impl FnOnce() + 'static) {
+    let texture = capture.texture.clone();
+    let path = capture.path.clone();
+    glib::MainContext::default().spawn_local(async move {
+        let result = gio::spawn_blocking(move || std::fs::write(&path, texture.save_to_png_bytes())).await;
+        if !matches!(result, Ok(Ok(()))) {
+            eprintln!("shotput: could not write the capture");
+        }
+        then();
+    });
 }
 
 /// The clipboard, at standard resolution when Settings asks for it.

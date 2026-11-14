@@ -1509,7 +1509,7 @@ impl Editor {
             }
             ui.fill.set_icon_name(if model.filled { "shotput-fill-symbolic" } else { "shotput-unfilled-symbolic" });
             if model.filled { ui.fill.add_css_class("accent-on") } else { ui.fill.remove_css_class("accent-on") }
-            ui.fill.set_tooltip_text(Some(if style == Tool::Redact { "Solid block" } else { "Fill" }));
+            ui.fill.set_tooltip_text(Some(if style == Tool::Redact { "Solid block" } else { "Solid fill" }));
             ui.fill.set_sensitive(style.supports_fill());
             if let Some(a) = self.window.lookup_action("undo").and_downcast::<gio::SimpleAction>() {
                 a.set_enabled(!model.undo.is_empty());
@@ -1965,6 +1965,8 @@ impl Editor {
         add(Kind::Arrow(p(470.0, 310.0), p(560.0, 380.0)), Ink::Red, Weight::Heavy, false, None);
         add(Kind::Arrow(p(60.0, 250.0), p(180.0, 300.0)), Ink::Violet, Weight::Regular, false, Some(p(80.0, 330.0)));
         add(Kind::Line(p(600.0, 60.0), p(640.0, 200.0)), Ink::Orange, Weight::Light, false, Some(p(680.0, 120.0)));
+        add(Kind::Rectangle(R::new(600.0, 240.0, 110.0, 60.0)), Ink::Blue, Weight::Regular, true, None);
+        add(Kind::Ellipse(R::new(620.0, 330.0, 80.0, 60.0)), Ink::Orange, Weight::Regular, true, None);
         let wave: Vec<P> = (0..60).map(|i| p(30.0 + i as f64 * 2.5, 400.0 + (i as f64 / 6.0).sin() * 14.0)).collect();
         add(Kind::Pen(wave), Ink::Violet, Weight::Regular, false, None);
         let last = m.annotations[9].id;

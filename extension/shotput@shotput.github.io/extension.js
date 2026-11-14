@@ -16,7 +16,7 @@ import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
-import {SelectionOverlay} from './overlay.js';
+import {SelectionOverlay, flushFadingOverlays} from './overlay.js';
 import {PreviewController, Shelf, Hud, flash} from './preview.js';
 import {PinStore, Indicator, acceleratorLabel} from './pins.js';
 import {GnomeKeyHandoff, SHORTCUT_KEYS, migrateShortcuts} from './keys.js';
@@ -260,6 +260,7 @@ export default class ShotputExtension extends Extension {
         }
         this._overlay?.cancel();
         this._overlay = null;
+        flushFadingOverlays();
         for (const key of Object.keys(SHORTCUTS))
             Main.wm.removeKeybinding(key);
         try {
@@ -301,6 +302,8 @@ export default class ShotputExtension extends Extension {
     }
 
     async _shootStage() {
+        // A closing overlay may still be fading out; it must not end up in the next still.
+        flushFadingOverlays();
         const shooter = new Shell.Screenshot();
         const [content, scale, cursorContent, cursorPoint, cursorScale] = await shooter.screenshot_stage_to_content();
         return {
@@ -341,7 +344,7 @@ export default class ShotputExtension extends Extension {
         case 'never': return false;
         default: {
             const shown = this.settings.get_int('hints-shown');
-            if (shown >= 4)
+            if (shown >= 8)
                 return false;
             this.settings.set_int('hints-shown', shown + 1);
             return true;
@@ -373,7 +376,7 @@ export default class ShotputExtension extends Extension {
         }
         let outcome;
         try {
-            const overlay = new SelectionOverlay({mode, shot, settings: this.settings, showHint: mode === 'area' && this._consumeHint()});
+            const overlay = new SelectionOverlay({mode, shot, settings: this.settings, showHint: this._consumeHint()});
             this._overlay = overlay;
             this._starting = false;
             outcome = await overlay.run();
@@ -394,7 +397,7 @@ export default class ShotputExtension extends Extension {
                     this._copyText(pixbuf);
                     return;
                 }
-                this._deliver(new Capture({pixbuf, png, scale: shot.scale, screenRect: rect, monitorIndex: this._monitorIndexFor(rect), appName}), annotate);
+                this._deliver(new Capture({pixbuf, png, scale: shot.scale, screenRect: rect, monitorIndex: this._monitorIndexFor(rect), appName}), annotate, {fromOverlay: true});
             } else if (outcome.kind === 'window') {
                 const capture = await this._captureWindow(outcome.info, shot, appName);
                 if (!capture)
@@ -403,7 +406,7 @@ export default class ShotputExtension extends Extension {
                     this._copyText(capture.pixbuf);
                     return;
                 }
-                this._deliver(capture, annotate);
+                this._deliver(capture, annotate, {fromOverlay: true});
             }
         } catch (e) {
             logError(e, 'Shotput: finishing the capture');
@@ -574,12 +577,17 @@ export default class ShotputExtension extends Extension {
 
     // MARK: Delivery
 
-    _deliver(capture, annotate) {
+    /**
+     * Hands a capture over: clipboard first, then preview or editor. Captures from the overlay
+     * need no flash, since the overlay fades off the captured area as it closes.
+     */
+    _deliver(capture, annotate, {fromOverlay = false} = {}) {
         this.lastCapture = capture;
         const after = annotate ? 'editor' : this.settings.get_string('after-capture');
         if (this.settings.get_boolean('plays-sound'))
             global.display.get_sound_player().play_from_theme('screen-capture', 'Screenshot taken', null);
-        flash(capture.screenRect);
+        if (!fromOverlay)
+            flash(capture.screenRect);
         this.pulseIndicator();
 
         // The clipboard is filled straight away in every mode, so pasting never waits on a choice.

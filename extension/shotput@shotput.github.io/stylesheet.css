@@ -1,41 +1,53 @@
 /* Shotput: selection overlay, preview, shelf, tray and HUD. */
 
-.shotput-dim { background-color: rgba(0, 0, 0, 0.3); }
+.shotput-dim { background-color: rgba(0, 0, 0, 0.32); }
 
-.shotput-outline { border: 1px solid white; }
-/* St fills a box-shadow under the whole box, so the outline's dark edge is its own frame. */
-.shotput-outline-shadow { border: 1px solid rgba(0, 0, 0, 0.35); }
+/* The selection frame is drawn as plain rectangles on the pixel grid (see overlay.js). */
+.shotput-frame-light { background-color: rgba(255, 255, 255, 0.95); }
+.shotput-frame-dark { background-color: rgba(0, 0, 0, 0.28); }
+/* -st-accent-color arrives in GNOME 47; GNOME 46 keeps the blue declared before it. */
 .shotput-outline-window {
-  border: 2px solid -st-accent-color;
+  border: 2px solid #3584e4;
+  border-color: -st-accent-color;
   border-radius: 10px;
   background-color: rgba(53, 132, 228, 0.12);
 }
 
-.shotput-guide { background-color: rgba(255, 255, 255, 0.7); }
-.shotput-guide-snapped { background-color: -st-accent-color; }
+.shotput-guide { background-color: rgba(255, 255, 255, 0.6); }
+.shotput-guide-snapped { background-color: #3584e4; background-color: -st-accent-color; }
 
 .shotput-loupe-ring { border-radius: 58px; border: 1.5px solid rgba(255, 255, 255, 0.92); }
-.shotput-loupe-shadow { border-radius: 58px; background-color: black; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35); }
-.shotput-reticle { border: 1px solid -st-accent-color; }
+.shotput-loupe-shadow { border-radius: 58px; background-color: black; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); }
+.shotput-reticle { border: 1px solid #3584e4; border-color: -st-accent-color; }
 
 .shotput-badge {
-  background-color: rgba(25, 25, 23, 0.82);
+  background-color: rgba(25, 25, 23, 0.86);
   color: white;
   border-radius: 6px;
-  padding: 3px 7px;
+  padding: 3px 8px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   font-feature-settings: "tnum";
 }
 
 .shotput-hint {
-  background-color: rgba(25, 25, 23, 0.82);
+  background-color: rgba(25, 25, 23, 0.86);
   color: white;
-  border-radius: 17px;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
+  border-radius: 999px;
+  padding: 7px 14px;
+  spacing: 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
+.shotput-hint-item { spacing: 6px; }
+.shotput-keycap {
+  background-color: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.shotput-hint-text { font-size: 12px; color: rgba(255, 255, 255, 0.78); }
 
 /* Preview */
 .shotput-preview {
@@ -72,7 +84,7 @@
   border-radius: 16px;
   border: 1.5px dashed rgba(255, 255, 255, 0.25);
 }
-.shotput-shelf:targeted .shotput-shelf-inner { border-color: -st-accent-color; }
+.shotput-shelf:targeted .shotput-shelf-inner { border-color: #3584e4; border-color: -st-accent-color; }
 .shotput-shelf-icon { margin-bottom: 4px; }
 .shotput-shelf-title { font-weight: bold; font-size: 15px; }
 .shotput-shelf-subtitle { font-size: 12px; color: rgba(255, 255, 255, 0.6); font-feature-settings: "tnum"; }
@@ -113,7 +125,7 @@
 
 .shotput-pin-cell { border-radius: 10px; padding: 0; background-color: rgba(255, 255, 255, 0.05); }
 .shotput-pin-ring { border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12); }
-.shotput-pin-cell:hover .shotput-pin-ring { border: 2px solid -st-accent-color; }
+.shotput-pin-cell:hover .shotput-pin-ring { border: 2px solid #3584e4; border-color: -st-accent-color; }
 .shotput-pin-meta {
   margin: 4px; padding: 1px 6px; border-radius: 6px; font-size: 10px;
   background-color: rgba(0, 0, 0, 0.6); color: white;
