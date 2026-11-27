@@ -74,8 +74,14 @@ pub fn run(app: &adw::Application, action: &str) {
         "last" => {
             if let Some(c) = last() {
                 open_editor(app, &c);
+            } else if let Some(entry) = crate::history::Store::open_default().entries().into_iter().next() {
+                // After a restart, the newest item in the history.
+                open_history_entry(app, &entry);
             }
         }
+        "history" => crate::history_window::open(app),
+        "clipboard" => crate::fallback(app, "clipboard"),
+        "settings" => crate::settings_window::open(app),
         _ => {}
     }
 }
@@ -226,7 +232,7 @@ pub fn deliver(app: &adw::Application, texture: gdk::Texture, scale: f64, app_na
 
     if action == "text" {
         copy_text_from(app, &texture);
-        write_png(&capture, || {});
+        write_png(&capture, |_| {});
         return;
     }
     copy_capture(&capture, &settings);
@@ -237,7 +243,10 @@ pub fn deliver(app: &adw::Application, texture: gdk::Texture, scale: f64, app_na
     }
     let app = app.clone();
     let written = capture.clone();
-    write_png(&capture, move || {
+    write_png(&capture, move |png| {
+        if let Some(png) = png {
+            crate::history::add(&written.id, png, written.app_name.clone(), written.scale);
+        }
         if settings.boolean("saves-every-capture", false) {
             save_capture(&written, &settings);
         }
@@ -248,15 +257,22 @@ pub fn deliver(app: &adw::Application, texture: gdk::Texture, scale: f64, app_na
 }
 
 /// Encodes the capture to its PNG file on a worker thread, then calls back on the main thread.
-fn write_png(capture: &Capture, then: impl FnOnce() + 'static) {
+fn write_png(capture: &Capture, then: impl FnOnce(Option<glib::Bytes>) + 'static) {
     let texture = capture.texture.clone();
     let path = capture.path.clone();
     glib::MainContext::default().spawn_local(async move {
-        let result = gio::spawn_blocking(move || std::fs::write(&path, texture.save_to_png_bytes())).await;
-        if !matches!(result, Ok(Ok(()))) {
-            eprintln!("shotput: could not write the capture");
+        let result = gio::spawn_blocking(move || {
+            let png = texture.save_to_png_bytes();
+            std::fs::write(&path, &png).map(|_| png)
+        })
+        .await;
+        match result {
+            Ok(Ok(png)) => then(Some(png)),
+            _ => {
+                eprintln!("shotput: could not write the capture");
+                then(None);
+            }
         }
-        then();
     });
 }
 
@@ -316,16 +332,38 @@ pub fn open_editor(app: &adw::Application, capture: &Capture) {
     Editor::open(app, capture.texture.clone(), info);
 }
 
-/// The editor wrote an annotated capture back to its file; keep "annotate last" current.
-pub fn capture_edited(path: &std::path::Path) {
-    LAST.with(|l| {
+/// The editor applied an edit: it becomes the last capture, so "annotate last", the preview's
+/// thumbnail and its drag use the edited image.
+pub fn capture_edited(id: &str, texture: &gdk::Texture, path: &std::path::Path, scale: f64, app_name: Option<String>) {
+    let capture = LAST.with(|l| {
         let mut l = l.borrow_mut();
-        if let Some(c) = l.as_mut().filter(|c| c.path == path) {
-            if let Ok(t) = gdk::Texture::from_filename(path) {
-                c.texture = t;
-            }
-        }
+        let date = l.as_ref().filter(|c| c.id == id).map(|c| c.date.clone());
+        let capture = Capture {
+            id: id.to_string(),
+            texture: texture.clone(),
+            path: path.to_path_buf(),
+            scale,
+            app_name,
+            date: date.unwrap_or_else(|| glib::DateTime::now_local().unwrap_or_else(|_| glib::DateTime::now_utc().expect("time"))),
+        };
+        *l = Some(capture.clone());
+        capture
     });
+    crate::npreview::refresh(&capture);
+}
+
+/// Opens a history item in the editor. Edits update the same item.
+pub fn open_history_entry(app: &adw::Application, entry: &crate::history::Entry) {
+    let store = crate::history::Store::open_default();
+    let Ok(data) = std::fs::read(store.path(&entry.id)) else { return };
+    let path = captures_dir().join(format!("{}.png", entry.id));
+    if std::fs::write(&path, &data).is_err() {
+        return;
+    }
+    let Ok(texture) = gdk::Texture::from_bytes(&glib::Bytes::from_owned(data)) else { return };
+    let date = glib::DateTime::from_unix_local(entry.date).unwrap_or_else(|_| glib::DateTime::now_utc().expect("time"));
+    let capture = Capture { id: entry.id.clone(), texture, path, scale: entry.scale.max(0.25), app_name: entry.app_name.clone(), date };
+    open_editor(app, &capture);
 }
 
 fn copy_text_from(app: &adw::Application, texture: &gdk::Texture) {

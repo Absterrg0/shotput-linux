@@ -75,6 +75,10 @@ impl Settings {
     pub fn recognizes_shapes(&self) -> bool {
         self.boolean("recognizes-shapes", true)
     }
+    /// Each finished edit in the editor goes to the clipboard by itself.
+    pub fn applies_edits(&self) -> bool {
+        self.boolean("editor-applies-edits", true)
+    }
     pub fn copy_at_point_size(&self) -> bool {
         self.boolean("copy-at-point-size", false)
     }

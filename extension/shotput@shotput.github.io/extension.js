@@ -20,11 +20,14 @@ import {SelectionOverlay, flushFadingOverlays} from './overlay.js';
 import {PreviewController, Shelf, Hud, flash} from './preview.js';
 import {PinStore, Indicator, acceleratorLabel} from './pins.js';
 import {GnomeKeyHandoff, SHORTCUT_KEYS, migrateShortcuts} from './keys.js';
+import {HistoryStore} from './history.js';
 
 Gio._promisify(Shell.Screenshot.prototype, 'screenshot_stage_to_content');
 Gio._promisify(Shell.Screenshot, 'composite_to_stream');
 Gio._promisify(Gio.Subprocess.prototype, 'communicate_utf8_async');
 Gio._promisify(Gio.Subprocess.prototype, 'wait_check_async');
+Gio._promisify(Gio.File.prototype, 'load_contents_async');
+Gio._promisify(GdkPixbuf.Pixbuf, 'new_from_stream_async');
 
 const EDITOR_ID = 'io.github.shotput.Shotput';
 const EDITOR_PATH = '/io/github/shotput/Shotput';
@@ -35,6 +38,7 @@ const BUS_IFACE = `<node>
     <method name="SetClipboardImage"><arg type="s" direction="in" name="path"/></method>
     <method name="SetClipboardText"><arg type="s" direction="in" name="text"/></method>
     <method name="CaptureEdited"><arg type="s" direction="in" name="id"/><arg type="s" direction="in" name="path"/></method>
+    <method name="EditApplied"><arg type="s" direction="in" name="id"/><arg type="s" direction="in" name="path"/><arg type="d" direction="in" name="scale"/><arg type="s" direction="in" name="appName"/></method>
     <method name="Hud"><arg type="s" direction="in" name="message"/></method>
   </interface>
 </node>`;
@@ -48,12 +52,13 @@ const SHORTCUTS = {
     'shortcut-repeat-area': 'repeat',
     'shortcut-text': 'text',
     'shortcut-annotate-clipboard': 'clipboard',
+    'shortcut-history': 'history',
 };
 
 // Other processes may only start captures that put a selection on screen. A silent full-screen
 // capture, or repeating an area without asking, is shortcut only, so nothing can use Shotput to
 // read the screen.
-const BUS_ACTIONS = new Set(['area', 'annotate', 'window', 'last', 'text', 'clipboard', 'settings']);
+const BUS_ACTIONS = new Set(['area', 'annotate', 'window', 'last', 'text', 'clipboard', 'history', 'settings']);
 
 function cacheDir() {
     const dir = GLib.build_filenamev([GLib.get_user_cache_dir(), 'shotput', 'captures']);
@@ -74,8 +79,8 @@ function pngBytes(pixbuf) {
 
 /** One screenshot and where on screen it came from. */
 class Capture {
-    constructor({pixbuf, png, scale, screenRect = null, monitorIndex = -1, appName = null}) {
-        this.id = GLib.uuid_string_random();
+    constructor({pixbuf, png, scale, screenRect = null, monitorIndex = -1, appName = null, id = null}) {
+        this.id = id ?? GLib.uuid_string_random();
         this.date = GLib.DateTime.new_now_local();
         this.pixbuf = pixbuf;
         this.png = png ?? pngBytes(pixbuf);
@@ -172,6 +177,8 @@ export default class ShotputExtension extends Extension {
     enable() {
         this.settings = this.getSettings();
         this.pins = new PinStore();
+        this.history = new HistoryStore(this.settings);
+        this._editSerial = 0;
         this.hud = new Hud(this.path);
         this.preview = new PreviewController(this);
         this.shelf = new Shelf(this);
@@ -210,6 +217,7 @@ export default class ShotputExtension extends Extension {
 
         this._syncIndicator();
         this._signals.push([this.settings, this.settings.connect('changed::shows-panel-icon', () => this._syncIndicator())]);
+        this._signals.push([this.settings, this.settings.connect('changed::history-size', () => this.history?.trim())]);
         this._signals.push([global.display, global.display.connect('window-created', (_d, w) => this._onWindowCreated(w))]);
 
         this._dbus = Gio.DBusExportedObject.wrapJSObject(BUS_IFACE, {
@@ -232,6 +240,9 @@ export default class ShotputExtension extends Extension {
                         logError(e, 'Shotput: reading edited capture');
                     }
                 }
+            },
+            EditApplied: (id, path, scale, appName) => {
+                this._editApplied(id, path, scale, appName).catch(e => logError(e, 'Shotput: applying an edit'));
             },
             Hud: message => this.hud.show(message),
         });
@@ -279,7 +290,7 @@ export default class ShotputExtension extends Extension {
         this.hud?.destroy();
         this._indicator?.destroy();
         this._indicator = null;
-        this.preview = this.shelf = this.hud = this.pins = null;
+        this.preview = this.shelf = this.hud = this.pins = this.history = null;
         this.lastCapture = null;
         this.settings = null;
     }
@@ -297,6 +308,7 @@ export default class ShotputExtension extends Extension {
         case 'repeat': done(this.repeatLastArea()); break;
         case 'last': this.annotateLast(); break;
         case 'clipboard': this.annotateClipboard(); break;
+        case 'history': this.showHistory(); break;
         case 'settings': this.openPreferences(); break;
         }
     }
@@ -540,7 +552,12 @@ export default class ShotputExtension extends Extension {
 
     annotateLast() {
         if (!this.lastCapture) {
-            this.annotateClipboard();
+            // After a restart, the newest item in the history.
+            const newest = this.history.entries()[0];
+            if (newest)
+                this.openHistory(newest);
+            else
+                this.annotateClipboard();
             return;
         }
         this.preview.dismiss();
@@ -593,6 +610,7 @@ export default class ShotputExtension extends Extension {
         // The clipboard is filled straight away in every mode, so pasting never waits on a choice.
         this.copyCapture(capture);
         capture.ensureFile();
+        this.history.record(capture);
         if (this.settings.get_boolean('saves-every-capture') && this.settings.get_string('save-folder'))
             this.saveCapture(capture, {quiet: true});
 
@@ -600,6 +618,41 @@ export default class ShotputExtension extends Extension {
             this.openEditor(capture);
         else if (after === 'preview')
             this.preview.show(capture);
+    }
+
+    /**
+     * The editor finished an edit (after a short pause, or Copy or Done) and wrote the result to
+     * `path`. It goes on the clipboard from here, since the shell owns the clipboard, and
+     * becomes the last capture, the preview's image and the history item for this capture, in
+     * place of the one before. Decoding runs off the main loop; an older edit that finishes late
+     * is dropped.
+     */
+    async _editApplied(id, path, scale, appName) {
+        const serial = ++this._editSerial;
+        const [data] = await Gio.File.new_for_path(path).load_contents_async(null);
+        const png = new GLib.Bytes(data);
+        const pixbuf = await GdkPixbuf.Pixbuf.new_from_stream_async(Gio.MemoryInputStream.new_from_bytes(png), null);
+        if (serial !== this._editSerial || !this.history)
+            return;
+        let capture = this.lastCapture?.id === id ? this.lastCapture : null;
+        if (capture) {
+            capture.pixbuf = pixbuf;
+            capture.png = png;
+            // The marks are now part of the pixels, so the unframed original no longer matches.
+            capture.framed = null;
+            capture._written = path === capture.path ? Promise.resolve(path) : null;
+            capture.ensureFile();
+        } else {
+            capture = new Capture({pixbuf, png, scale, appName: appName || null, id});
+            if (path === capture.path)
+                capture._written = Promise.resolve(path);
+            else
+                capture.ensureFile();
+        }
+        this.lastCapture = capture;
+        this.copyCapture(capture);
+        this.history.record(capture);
+        this.preview.refresh(capture);
     }
 
     setClipboardBytes(bytes) {
@@ -763,6 +816,56 @@ export default class ShotputExtension extends Extension {
                 } catch (e) {
                     this._placement = null;
                     this.hud.show('Update the Shotput app to drag captures', 'dialog-warning-symbolic');
+                }
+            });
+    }
+
+    // MARK: Clipboard history
+
+    _historyCapture(entry) {
+        const png = this.history.bytes(entry);
+        const pixbuf = GdkPixbuf.Pixbuf.new_from_stream(Gio.MemoryInputStream.new_from_bytes(png), null);
+        return new Capture({pixbuf, png, scale: entry.scale ?? 1, appName: entry.appName ?? null, id: entry.id});
+    }
+
+    /** Puts a history item back on the clipboard. */
+    copyHistory(entry) {
+        try {
+            this.copyCapture(this._historyCapture(entry));
+            this.hud.show('Copied');
+        } catch (e) {
+            logError(e, 'Shotput: copying from the history');
+        }
+    }
+
+    /** Opens a history item in the editor; its edits update the same item. */
+    openHistory(entry) {
+        try {
+            const capture = this._historyCapture(entry);
+            this.lastCapture = capture;
+            this.openEditor(capture);
+        } catch (e) {
+            logError(e, 'Shotput: opening from the history');
+        }
+    }
+
+    /** Opens the history in the top bar menu, or in the app's window when the icon is hidden. */
+    showHistory() {
+        if (!this.history.enabled) {
+            this.hud.show('Clipboard history is off', 'dialog-information-symbolic');
+            return;
+        }
+        if (this._indicator?.visible && this._indicator.get_stage()) {
+            this._indicator.openHistory();
+            return;
+        }
+        Gio.DBus.session.call(EDITOR_ID, EDITOR_PATH, 'org.gtk.Actions', 'Activate',
+            new GLib.Variant('(sava{sv})', ['history', [], {}]),
+            null, Gio.DBusCallFlags.NONE, 10000, null, (conn, res) => {
+                try {
+                    conn.call_finish(res);
+                } catch (e) {
+                    this.hud.show('Update the Shotput app to see the history', 'dialog-warning-symbolic');
                 }
             });
     }

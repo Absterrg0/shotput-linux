@@ -2,6 +2,7 @@
 //! window and toolbar (EditorWindowController.swift), style bar (StyleBar.swift) and the
 //! background popover (BackdropPicker.swift), ported to GTK 4 and libadwaita.
 
+use crate::apply::{Applier, DEBOUNCE_MS};
 use crate::backdrop::{self, Fill, Style};
 use crate::canvas::Canvas;
 use crate::model::*;
@@ -44,13 +45,17 @@ struct Applied {
     style: Style,
 }
 
+#[derive(Clone)]
 struct Snap {
     base: BaseImage,
     annotations: Vec<Annotation>,
     backdrop: Option<Applied>,
 }
 
+#[derive(Clone)]
 struct Model {
+    /// Grows with every change to the image, for putting each finished edit on the clipboard.
+    revision: u64,
     scale: f64,
     base: BaseImage,
     annotations: Vec<Annotation>,
@@ -63,6 +68,8 @@ struct Model {
     redo: Vec<Snap>,
     gesture_pending: bool,
     gesture_checkpointed: bool,
+    /// The revision before the current gesture, restored when the gesture comes to nothing.
+    gesture_revision: u64,
     fill_by_tool: HashMap<Tool, bool>,
     backdrop: Option<Applied>,
 }
@@ -99,10 +106,12 @@ impl Model {
     }
     fn update(&mut self, body: impl FnOnce(&mut Vec<Annotation>)) {
         if self.gesture_pending {
+            self.gesture_revision = self.revision;
             self.checkpoint();
             self.gesture_pending = false;
             self.gesture_checkpointed = true;
         }
+        self.revision += 1;
         body(&mut self.annotations);
     }
     fn perform(&mut self, body: impl FnOnce(&mut Vec<Annotation>)) {
@@ -125,6 +134,8 @@ impl Model {
         if let Some(snap) = self.undo.pop() {
             self.gesture_checkpointed = false;
             self.annotations = snap.annotations;
+            // Nothing changed after all, so nothing new goes to the clipboard.
+            self.revision = self.gesture_revision;
         }
     }
     fn checkpoint(&mut self) {
@@ -144,6 +155,7 @@ impl Model {
         }
     }
     fn restore(&mut self, snap: Snap) {
+        self.revision += 1;
         self.base = snap.base;
         self.annotations = snap.annotations;
         self.backdrop = snap.backdrop;
@@ -184,6 +196,7 @@ impl Model {
         if !coalesce {
             self.checkpoint();
         }
+        self.revision += 1;
         let shift = p(new_padding - old_padding, new_padding - old_padding);
         self.annotations = self.annotations.iter().map(|a| a.translated(shift)).collect();
         match composed {
@@ -296,16 +309,68 @@ pub struct Editor {
     toast_generation: Rc<Cell<u64>>,
     last_padding_change: Cell<i64>,
     pinch_start: Cell<f64>,
+    /// The image the editor opened with, put back when every change is undone.
+    original: gdk::Texture,
+    /// Names this image to the extension, the history and "annotate last": the capture's id, or
+    /// a new one for an image opened from a file or the clipboard.
+    apply_id: String,
+    /// Whether each finished edit goes to the clipboard by itself.
+    applies: bool,
+    applier: RefCell<Applier>,
+    apply_timer: RefCell<Option<glib::SourceId>>,
+    /// A fingerprint of the PNG last written for this image, to know it on reopening.
+    fingerprint: Cell<Option<u64>>,
+    me: RefCell<std::rc::Weak<Editor>>,
 }
+
+/// The marks of a closed editor, so "annotate last" reopens them editable rather than flattened.
+struct Kept {
+    id: String,
+    fingerprint: u64,
+    model: Model,
+    original: gdk::Texture,
+}
+
+/// How many closed editors keep their marks.
+const KEPT_LIMIT: usize = 5;
 
 thread_local! {
     static EDITORS: RefCell<Vec<Rc<Editor>>> = const { RefCell::new(Vec::new()) };
+    static KEPT: RefCell<Vec<Kept>> = const { RefCell::new(Vec::new()) };
+}
+
+fn fingerprint(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut h);
+    h.finish()
+}
+
+/// The marks kept for this capture, when the file still holds what the editor last wrote.
+fn take_kept(id: &str, path: Option<&std::path::Path>) -> Option<Kept> {
+    let index = KEPT.with(|k| k.borrow().iter().position(|k| k.id == id))?;
+    let data = std::fs::read(path?).ok()?;
+    let print = fingerprint(&data);
+    crate::debug!("reopening {id}: file {print:x}, kept {:x}", KEPT.with(|k| k.borrow()[index].fingerprint));
+    KEPT.with(|k| {
+        let mut k = k.borrow_mut();
+        (k[index].fingerprint == print).then(|| k.remove(index))
+    })
 }
 
 static EDITOR_SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 impl Editor {
     pub fn open(app: &adw::Application, texture: gdk::Texture, capture: CaptureInfo) -> Rc<Editor> {
+        // The same capture again: raise its editor, marks and all.
+        if let Some(id) = capture.id.as_deref() {
+            let open = EDITORS.with(|list| list.borrow().iter().find(|e| e.apply_id == id && e.window.is_visible()).cloned());
+            if let Some(e) = open {
+                e.window.present();
+                return e;
+            }
+        }
+        let kept = capture.id.as_deref().and_then(|id| take_kept(id, capture.path.as_deref()));
         let settings = Settings::new();
         let stored_tool = Tool::from_index(settings.int("editor-tool", 0));
         // Reopening on crop would make the first drag destructive.
@@ -313,8 +378,9 @@ impl Editor {
         let mut fill_by_tool = HashMap::new();
         fill_by_tool.insert(Tool::Text, true);
         let mut model = Model {
+            revision: 0,
             scale: capture.scale,
-            base: BaseImage::new(texture),
+            base: BaseImage::new(texture.clone()),
             annotations: Vec::new(),
             selected: None,
             tool,
@@ -325,12 +391,26 @@ impl Editor {
             redo: Vec::new(),
             gesture_pending: false,
             gesture_checkpointed: false,
+            gesture_revision: 0,
             fill_by_tool,
             backdrop: None,
         };
         if let Some((plain, style)) = &capture.framed {
             model.backdrop = Some(Applied { plain: BaseImage::new(plain.clone()), style: *style });
         }
+        let mut original = texture;
+        let mut applier = Applier::default();
+        if let Some(kept) = kept {
+            // Reopened with its marks: the clipboard already holds this revision.
+            let (tool, color, weight, filled) = (model.tool, model.color, model.weight, model.filled);
+            model = kept.model;
+            (model.tool, model.color, model.weight, model.filled) = (tool, color, weight, filled);
+            model.selected = None;
+            original = kept.original;
+            applier.mark(model.revision);
+        }
+        let applies = settings.applies_edits();
+        let apply_id = capture.id.clone().unwrap_or_else(|| glib::uuid_string_random().to_string());
 
         let window = adw::ApplicationWindow::builder().application(app).title("Shotput").build();
         window.add_css_class("shotput-editor");
@@ -384,19 +464,38 @@ impl Editor {
             toast_generation: Rc::new(Cell::new(0)),
             last_padding_change: Cell::new(0),
             pinch_start: Cell::new(1.0),
+            original,
+            apply_id,
+            applies,
+            applier: RefCell::new(applier),
+            apply_timer: RefCell::new(None),
+            fingerprint: Cell::new(None),
+            me: RefCell::new(std::rc::Weak::new()),
         });
+        *editor.me.borrow_mut() = Rc::downgrade(&editor);
         editor.build();
         editor.lay_out();
         EDITORS.with(|list| list.borrow_mut().push(editor.clone()));
+        // EDITORS holds the window, so it is never disposed and never emits `destroy`. Clean up
+        // when the app lets go of it instead (closing, or Done's destroy).
         let weak = Rc::downgrade(&editor);
-        editor.window.connect_destroy(move |_| {
-            if let Some(editor) = weak.upgrade() {
-                if let Some(display) = gdk::Display::default() {
-                    gtk::style_context_remove_provider_for_display(&display, &editor.text_css);
-                }
-                EDITORS.with(|list| list.borrow_mut().retain(|e| !Rc::ptr_eq(e, &editor)));
+        let handler: Rc<Cell<Option<glib::SignalHandlerId>>> = Rc::new(Cell::new(None));
+        let handler2 = handler.clone();
+        let id = app.connect_window_removed(move |app, window| {
+            let Some(editor) = weak.upgrade() else { return };
+            if window != editor.window.upcast_ref::<gtk::Window>() {
+                return;
+            }
+            if let Some(display) = gdk::Display::default() {
+                gtk::style_context_remove_provider_for_display(&display, &editor.text_css);
+            }
+            editor.keep_marks();
+            EDITORS.with(|list| list.borrow_mut().retain(|e| !Rc::ptr_eq(e, &editor)));
+            if let Some(id) = handler2.take() {
+                app.disconnect(id);
             }
         });
+        handler.set(Some(id));
         editor.sync();
         editor.window.present();
         editor.canvas.grab_focus();
@@ -912,6 +1011,8 @@ impl Editor {
             self.window.connect_close_request(move |_| {
                 if let Some(e) = weak.upgrade() {
                     e.commit_text();
+                    // An edit still waiting out the pause goes to the clipboard now.
+                    e.flush_apply();
                 }
                 glib::Propagation::Proceed
             });
@@ -1521,6 +1622,7 @@ impl Editor {
         }
         self.syncing.set(false);
         self.canvas.queue_draw();
+        self.schedule_apply();
     }
 
     // MARK: Background
@@ -1762,28 +1864,166 @@ impl Editor {
         full.clone()
     }
 
-    /// Encodes off the main thread, writes the result back to the capture so the preview and
-    /// "annotate last" see it, then calls back with the PNG.
-    fn commit_to_capture(self: &Rc<Self>, then: impl FnOnce(&Rc<Editor>, glib::Bytes, gdk::Texture) + 'static) {
-        let Some(full) = self.flattened() else { return };
+    /// The image as it stands: the untouched original when every change is undone.
+    fn current_image(&self) -> Option<(u64, gdk::Texture)> {
+        self.commit_text();
+        let model = self.model.borrow();
+        let revision = model.revision;
+        if model.undo.is_empty() && model.annotations.is_empty() {
+            return Some((revision, self.original.clone()));
+        }
+        drop(model);
+        self.flattened().map(|t| (revision, t))
+    }
+
+    /// Where the edited image is written for the extension and "annotate last": the capture's
+    /// own cache file, never a file the user saved.
+    fn apply_path(&self) -> PathBuf {
+        self.capture.borrow().path.clone().unwrap_or_else(|| output::runtime_dir().join(format!("edit-{}.png", self.apply_id)))
+    }
+
+    /// Puts the current image where it belongs: written back to the capture, so the preview,
+    /// pins, the history and "annotate last" see it, and on the clipboard when `copies`. The PNG
+    /// is encoded off the main thread. On GNOME the extension owns the clipboard, so it is
+    /// handed over there in one call; elsewhere this process serves it. Calls back with the PNG
+    /// and the texture at output resolution.
+    fn deliver(
+        self: &Rc<Self>,
+        copies: bool,
+        auto: bool,
+        then: impl FnOnce(&Rc<Editor>, glib::Bytes, gdk::Texture) + 'static,
+    ) {
+        let Some((revision, full)) = self.current_image() else { return };
+        if auto && !self.applier.borrow_mut().start(revision) {
+            return;
+        }
+        if !auto {
+            self.cancel_apply_timer();
+        }
         let out = self.output_texture(&full);
-        let (id, path) = {
+        let path = self.apply_path();
+        let (scale, app_name) = {
             let c = self.capture.borrow();
-            (c.id.clone(), c.path.clone())
+            (self.model.borrow().scale, c.app_name.clone())
         };
-        let weak = Rc::downgrade(self);
+        let id = self.apply_id.clone();
+        let e = self.clone();
         glib::MainContext::default().spawn_local(async move {
-            let encode_out = out.clone();
-            let Ok(png) = gio::spawn_blocking(move || encode_out.save_to_png_bytes()).await else { return };
-            if let (Some(id), Some(path)) = (id, path) {
-                if std::fs::write(&path, &png).is_ok() {
-                    crate::native::capture_edited(&path);
-                    output::call_shell("CaptureEdited", &(id, path.to_string_lossy().to_string()).to_variant());
+            let encode = (full.clone(), out.clone(), path.clone());
+            let encoded = gio::spawn_blocking(move || {
+                let (full, out, path) = encode;
+                let png = full.save_to_png_bytes();
+                let written = std::fs::write(&path, &png).is_ok();
+                let out_png = if out == full { png.clone() } else { out.save_to_png_bytes() };
+                (png, out_png, written)
+            })
+            .await;
+            let Ok((png, out_png, written)) = encoded else {
+                if auto {
+                    e.applier.borrow_mut().finish(revision, false);
+                }
+                return;
+            };
+            if written {
+                e.fingerprint.set(Some(fingerprint(&png)));
+                // Closed while this was encoding: keep the marks with the final fingerprint.
+                if !EDITORS.with(|list| list.borrow().iter().any(|x| Rc::ptr_eq(x, &e))) {
+                    e.keep_marks();
                 }
             }
-            if let Some(e) = weak.upgrade() {
-                then(&e, png, out);
+            let path_str = path.to_string_lossy().to_string();
+            let through_shell = if !written {
+                false
+            } else if copies {
+                output::call_shell_async(
+                    "EditApplied",
+                    (id.clone(), path_str, scale, app_name.clone().unwrap_or_default()).to_variant(),
+                )
+                .await
+            } else {
+                output::call_shell_async("CaptureEdited", (id.clone(), path_str).to_variant()).await
+            };
+            if !through_shell {
+                // No extension: this process owns the clipboard, "annotate last" and the history.
+                crate::native::capture_edited(&id, &full, &path, scale, app_name.clone());
+                if copies {
+                    if let Some(display) = gdk::Display::default() {
+                        display.clipboard().set_texture(&out);
+                    }
+                    crate::history::add(&id, png.clone(), app_name, scale);
+                }
             }
+            crate::debug!("edit {revision} delivered (copies {copies}, shell {through_shell})");
+            if copies {
+                e.applier.borrow_mut().mark(revision);
+            }
+            if auto && e.applier.borrow_mut().finish(revision, copies) {
+                e.schedule_apply();
+            }
+            then(&e, out_png, out);
+        });
+    }
+
+    /// Starts the pause after a finished change; when it ends, the result goes to the clipboard.
+    /// Nothing happens mid-stroke or while typing: the stroke's end or the text's commit
+    /// syncs again.
+    fn schedule_apply(&self) {
+        if !self.applies || !self.window.is_visible() {
+            return;
+        }
+        let revision = self.model.borrow().revision;
+        if !self.applier.borrow().needs(revision) {
+            return;
+        }
+        let busy_drag = self.drag.try_borrow().map(|d| !matches!(*d, Drag::None | Drag::Ignore)).unwrap_or(true);
+        if busy_drag || self.text.try_borrow().map(|t| t.is_some()).unwrap_or(true) {
+            return;
+        }
+        self.cancel_apply_timer();
+        let weak = self.me.borrow().clone();
+        let source = glib::timeout_add_local_once(std::time::Duration::from_millis(DEBOUNCE_MS), move || {
+            if let Some(e) = weak.upgrade() {
+                e.apply_timer.borrow_mut().take();
+                e.deliver(true, true, |_, _, _| {});
+            }
+        });
+        *self.apply_timer.borrow_mut() = Some(source);
+    }
+
+    fn cancel_apply_timer(&self) {
+        if let Some(source) = self.apply_timer.borrow_mut().take() {
+            source.remove();
+        }
+    }
+
+    /// Sends a change still inside its pause, when the window closes.
+    fn flush_apply(&self) {
+        if !self.applies {
+            return;
+        }
+        let pending = self.apply_timer.borrow().is_some();
+        let revision = self.model.borrow().revision;
+        if pending || self.applier.borrow().needs(revision) {
+            self.cancel_apply_timer();
+            if let Some(e) = self.me.borrow().upgrade() {
+                e.deliver(true, true, |_, _, _| {});
+            }
+        }
+    }
+
+    /// Keeps a closed editor's marks for "annotate last", when its result was written back.
+    fn keep_marks(&self) {
+        crate::debug!("closing {}: fingerprint {:?}, path {:?}", self.apply_id, self.fingerprint.get(), self.capture.borrow().path);
+        let Some(print) = self.fingerprint.get() else { return };
+        if self.capture.borrow().path.is_none() {
+            return;
+        }
+        let kept = Kept { id: self.apply_id.clone(), fingerprint: print, model: self.model.borrow().clone(), original: self.original.clone() };
+        KEPT.with(|k| {
+            let mut k = k.borrow_mut();
+            k.retain(|c| c.id != kept.id);
+            k.insert(0, kept);
+            k.truncate(KEPT_LIMIT);
         });
     }
 
@@ -1819,8 +2059,7 @@ impl Editor {
     }
 
     fn copy(self: &Rc<Self>) {
-        self.commit_to_capture(|e, png, tex| {
-            output::copy_png(&png, &tex);
+        self.deliver(true, false, |e, _, _| {
             if e.settings.closes_on_copy() {
                 e.window.close();
             } else {
@@ -1834,8 +2073,7 @@ impl Editor {
         // Hide straight away; the copy finishes a moment later in the background.
         self.commit_text();
         let window = self.window.clone();
-        self.commit_to_capture(move |_, png, tex| {
-            output::copy_png(&png, &tex);
+        self.deliver(true, false, move |_, _, _| {
             window.destroy();
         });
         self.window.set_visible(false);
@@ -1850,7 +2088,9 @@ impl Editor {
             let template = self.settings.string("filename-template", "Shotput %Y-%m-%d at %H.%M.%S");
             format!("{}.{}", output::file_name(&template, &c.date, c.app_name.as_deref()), output::extension_for(&format))
         };
-        self.commit_to_capture(move |e, png, tex| {
+        // Saving also leaves the result on the clipboard when edits go there by themselves.
+        let copies = self.applies;
+        self.deliver(copies, false, move |e, png, tex| {
             let data = if format == "png" { Some(png) } else { output::encode(&tex, &format, quality) };
             let Some(data) = data else {
                 e.show_toast("Could not encode the image");
@@ -2048,7 +2288,114 @@ pub fn dev_sample_image() -> gdk::Texture {
     crate::backdrop::surface_to_texture(surface).expect("texture")
 }
 
+/// The most recently opened editor, for the test hooks.
+pub fn latest() -> Option<Rc<Editor>> {
+    EDITORS.with(|list| list.borrow().last().cloned())
+}
+
+impl Editor {
+    /// Test hook (SHOTPUT_TEST): drives the canvas's own gesture handlers, for headless
+    /// compositors whose virtual pointers cannot click.
+    pub fn test_command(self: &Rc<Self>, args: &[String]) {
+        let num = |i: usize| args.get(i).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+        match args.first().map(String::as_str) {
+            Some("rect") => {
+                self.set_tool(Tool::Rectangle);
+                let v = self.view.get();
+                let (a, b) = (v.to_view(p(num(1), num(2))), v.to_view(p(num(1) + num(3), num(2) + num(4))));
+                let g = gtk::GestureDrag::new();
+                self.mouse_down(&g, a.x, a.y);
+                for i in 1..=8 {
+                    let t = i as f64 / 8.0;
+                    self.mouse_dragged(&g, (b.x - a.x) * t, (b.y - a.y) * t);
+                }
+                self.mouse_up();
+            }
+            Some(action @ ("undo" | "redo" | "done" | "copy" | "close")) => {
+                gio::prelude::ActionGroupExt::activate_action(&self.window, action, None);
+            }
+            Some("escape") => {
+                self.key_down(gdk::Key::Escape, gdk::ModifierType::empty());
+            }
+            Some("state") => {
+                let m = self.model.borrow();
+                println!("editor {} revision {} marks {} undo {} visible {} open {}", self.apply_id, m.revision, m.annotations.len(), m.undo.len(), self.window.is_visible(), count());
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Every open editor, for the app to find the one to raise.
 pub fn count() -> usize {
     EDITORS.with(|list| list.borrow().len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn model() -> Model {
+        let pixels = glib::Bytes::from_owned(vec![255u8; 40 * 30 * 4]);
+        let texture: gdk::Texture = gdk::MemoryTexture::new(40, 30, gdk::MemoryFormat::R8g8b8a8Premultiplied, &pixels, 40 * 4).upcast();
+        Model {
+            revision: 0,
+            scale: 1.0,
+            base: BaseImage::new(texture),
+            annotations: Vec::new(),
+            selected: None,
+            tool: Tool::Rectangle,
+            color: Ink::Red,
+            weight: Weight::Regular,
+            filled: false,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            gesture_pending: false,
+            gesture_checkpointed: false,
+            gesture_revision: 0,
+            fill_by_tool: HashMap::new(),
+            backdrop: None,
+        }
+    }
+
+    #[test]
+    fn every_change_moves_the_revision_and_selection_does_not() {
+        let mut m = model();
+        let a = m.make(Kind::Rectangle(R::new(2.0, 2.0, 10.0, 10.0)));
+        let id = a.id;
+        m.perform(|list| list.push(a));
+        let after_draw = m.revision;
+        assert!(after_draw > 0);
+
+        m.set_selected(Some(id));
+        assert_eq!(m.revision, after_draw, "selecting is not an edit");
+
+        m.undo();
+        assert!(m.revision > after_draw);
+        assert!(m.undo.is_empty() && m.annotations.is_empty(), "back at the original image");
+        let after_undo = m.revision;
+        m.redo();
+        assert!(m.revision > after_undo);
+        assert_eq!(m.annotations.len(), 1);
+
+        let before_crop = m.revision;
+        m.crop(R::new(0.0, 0.0, 20.0, 20.0));
+        assert!(m.revision > before_crop);
+        assert_eq!(m.base.width(), 20);
+    }
+
+    #[test]
+    fn a_click_that_draws_nothing_is_no_change() {
+        let mut m = model();
+        let a = m.make(Kind::Rectangle(R::new(2.0, 2.0, 10.0, 10.0)));
+        m.perform(|list| list.push(a));
+        let before = m.revision;
+        m.begin_gesture();
+        let b = m.make(Kind::Rectangle(R::new(2.0, 2.0, 0.0, 0.0)));
+        m.update(|list| list.push(b));
+        assert!(m.revision > before);
+        m.discard_gesture();
+        assert_eq!(m.revision, before, "a rolled-back click sends nothing to the clipboard");
+        assert_eq!(m.annotations.len(), 1);
+    }
 }

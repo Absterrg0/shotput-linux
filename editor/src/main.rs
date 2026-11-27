@@ -6,12 +6,15 @@
 //! Hyprland, Sway and other Wayland desktops it also captures by itself (see `native`), with
 //! shortcuts through the GlobalShortcuts portal.
 
+mod apply;
 mod backdrop;
 mod canvas;
 mod desktop;
 mod drag;
 mod editor;
 mod grab;
+mod history;
+mod history_window;
 mod layer;
 mod model;
 mod native;
@@ -42,7 +45,7 @@ macro_rules! debug {
     };
 }
 
-const ACTIONS: [&str; 9] = ["area", "annotate", "window", "screen", "last", "repeat", "text", "clipboard", "settings"];
+const ACTIONS: [&str; 10] = ["area", "annotate", "window", "screen", "last", "repeat", "text", "clipboard", "history", "settings"];
 
 const USAGE: &str = "Usage: shotput [COMMAND]
 
@@ -55,6 +58,7 @@ Commands:
   repeat      Captures the same area as last time, with no selection.
   text        Drag over any text and it is copied as text.
   clipboard   Opens the image on the clipboard in the editor.
+  history     Shows recent captures and edits, to copy one again.
   settings    Opens Shotput's settings.
   edit FILE   Opens an image in the editor.
   version     Prints the version.
@@ -131,10 +135,11 @@ fn action_for(arg: &str) -> Option<&'static str> {
             "last" => "last",
             "text" => "text",
             "clipboard" => "clipboard",
+            "history" => "history",
             "settings" => "settings",
             _ => return None,
         };
-        if mapped != "settings" && !settings::Settings::new().boolean("allows-links", true) {
+        if !matches!(mapped, "settings" | "history") && !settings::Settings::new().boolean("allows-links", true) {
             return Some("blocked");
         }
         return Some(mapped);
@@ -162,7 +167,7 @@ fn startup(app: &adw::Application) {
     // Without the GNOME extension, this process captures and owns the shortcuts.
     if let Some(display) = gdk::Display::default() {
         let css = gtk::CssProvider::new();
-        css.load_from_string(npreview::CSS);
+        css.load_from_string(&format!("{}{}", npreview::CSS, history_window::CSS));
         gtk::style_context_add_provider_for_display(&display, &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
     }
     if let Some(connection) = app.dbus_connection() {
@@ -189,6 +194,16 @@ fn startup(app: &adw::Application) {
         drag::open_window(&app, &json);
     });
     app.add_action(&drag);
+
+    // The extension opens the history here when the top bar icon is hidden.
+    let history = gio::SimpleAction::new("history", None);
+    let weak = app.downgrade();
+    history.connect_activate(move |_, _| {
+        if let Some(app) = weak.upgrade() {
+            history_window::open(&app);
+        }
+    });
+    app.add_action(&history);
 
     app.set_accels_for_action("win.copy", &["<Control>c"]);
     app.set_accels_for_action("win.save", &["<Control>s"]);
@@ -308,6 +323,11 @@ fn handle_command_line(app: &adw::Application, args: &[String], cwd: &std::path:
                 o.test_event(args.get(2).map(String::as_str).unwrap_or(""), num(3), num(4), modifiers);
             }
         }
+        Some("test-editor") if std::env::var_os("SHOTPUT_TEST").is_some() => {
+            if let Some(e) = editor::latest() {
+                e.test_command(&args[2..]);
+            }
+        }
         Some("test-grab") if std::env::var_os("SHOTPUT_TEST").is_some() => {
             let out = args.get(2).cloned().unwrap_or_else(|| "/tmp/shotput-grab.png".into());
             grab::grab(move |result| match result {
@@ -328,6 +348,7 @@ fn handle_command_line(app: &adw::Application, args: &[String], cwd: &std::path:
             Some("blocked") => {}
             Some(action) if desktop::captures_natively() => match action {
                 "settings" => settings_window::open(app),
+                "history" => history_window::open(app),
                 "clipboard" => fallback(app, action),
                 _ => native::run(app, action),
             },
@@ -394,6 +415,7 @@ fn fallback(app: &adw::Application, action: &str) {
                 }
             });
         }
+        "history" => history_window::open(app),
         "settings" => {
             let launcher = gio::Subprocess::newv(
                 &["gnome-extensions".as_ref(), "prefs".as_ref(), settings::EXTENSION_UUID.as_ref()],

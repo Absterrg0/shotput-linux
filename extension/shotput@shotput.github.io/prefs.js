@@ -19,6 +19,7 @@ const ACTIONS = [
     ['shortcut-repeat-area', 'Repeat last area', 'Captures the same area as last time, with no selection.'],
     ['shortcut-text', 'Copy text from area', 'Drag over any text and it is copied as text.'],
     ['shortcut-annotate-clipboard', 'Annotate clipboard image', 'Opens the image on the clipboard in the editor.'],
+    ['shortcut-history', 'Show clipboard history', 'Recent captures and edits, to copy one again.'],
 ];
 
 const TOKENS = [
@@ -291,9 +292,14 @@ export default class ShotputPreferences extends ExtensionPreferences {
 
     _editor(settings) {
         const page = new Adw.PreferencesPage({title: 'Editor', icon_name: 'document-edit-symbolic'});
+        const applying = group('Clipboard');
+        applying.add(switchRow(settings, 'editor-applies-edits', 'Edits go to the clipboard as you make them',
+            'A moment after each change, the edited image is copied, so there is no need to press Copy or Done. Undo all the way puts the original back.'));
+        page.add(applying);
+
         const closing = group('Closing', 'Return always copies and closes. Esc first clears a selection or crop, then closes.');
         closing.add(comboRow(settings, 'escape-in-editor', 'Esc', [
-            ['discard', 'Closes without copying'], ['copy', 'Copies and closes'],
+            ['discard', 'Closes without copying again'], ['copy', 'Copies and closes'],
         ]));
         closing.add(switchRow(settings, 'editor-closes-on-copy', 'Copy (Ctrl+C) also closes the editor'));
         page.add(closing);
@@ -320,6 +326,15 @@ export default class ShotputPreferences extends ExtensionPreferences {
         const clipboard = group('Clipboard and files');
         clipboard.add(switchRow(settings, 'copy-at-point-size', 'Use standard resolution',
             'Halves the pixel size on HiDPI displays. Smaller images are quicker for an agent to read.'));
+        clipboard.add(switchRow(settings, 'keeps-history', 'Keep a clipboard history',
+            'Recent captures and their edits, in the top bar menu, to copy again. Kept on this computer only.'));
+        const historySize = new Adw.SpinRow({
+            title: 'Items in the history',
+            adjustment: new Gtk.Adjustment({lower: 5, upper: 50, step_increment: 1, page_increment: 5}),
+        });
+        settings.bind('history-size', historySize, 'value', Gio.SettingsBindFlags.DEFAULT);
+        settings.bind('keeps-history', historySize, 'sensitive', Gio.SettingsBindFlags.GET);
+        clipboard.add(historySize);
         page.add(clipboard);
 
         const saving = group('Saving', 'The clipboard always gets a PNG. Without a save folder, files go to Pictures/Screenshots.');

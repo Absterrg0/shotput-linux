@@ -124,12 +124,19 @@ pub fn open(app: &adw::Application) {
     let group = adw::PreferencesGroup::new();
     group.add(&switch(&settings, "copy-at-point-size", "Standard resolution", "Copy and save HiDPI captures at their on-screen size."));
     page.add(&group);
+    let group = adw::PreferencesGroup::builder().title("Clipboard history").build();
+    group.add(&switch(&settings, "keeps-history", "Keep a clipboard history", "Recent captures and their edits, to copy again with shotput history. Kept on this computer only."));
+    let size = number(&settings, "history-size", "Items in the history", "", 5.0, 50.0, 1.0, 0);
+    settings.bind("keeps-history", &size, "sensitive").get().build();
+    group.add(&size);
+    page.add(&group);
     window.add(&page);
 
     // Editor
     let page = adw::PreferencesPage::builder().title("Editor").icon_name("document-edit-symbolic").build();
     let group = adw::PreferencesGroup::new();
-    group.add(&choice(&settings, "escape-in-editor", "Esc in the editor", &[("discard", "Closes without copying"), ("copy", "Copies and closes")]));
+    group.add(&switch(&settings, "editor-applies-edits", "Edits go to the clipboard as you make them", "A moment after each change, the edited image is copied. No need to press Copy or Done."));
+    group.add(&choice(&settings, "escape-in-editor", "Esc in the editor", &[("discard", "Closes without copying again"), ("copy", "Copies and closes")]));
     group.add(&switch(&settings, "editor-closes-on-copy", "Ctrl+C closes the editor", ""));
     group.add(&switch(&settings, "recognizes-shapes", "Turn sketches into shapes", "Pen strokes that look like a line, arrow, box or circle become one."));
     group.add(&switch(&settings, "ocr-keeps-line-breaks", "Copy text keeps line breaks", ""));
@@ -164,6 +171,7 @@ pub fn open(app: &adw::Application) {
         ("shotput screen", "Capture screen"),
         ("shotput text", "Copy text from area"),
         ("shotput last", "Annotate last capture"),
+        ("shotput history", "Show clipboard history"),
     ] {
         let row = adw::ActionRow::builder().title(what).subtitle(cmd).build();
         row.add_css_class("property");

@@ -10,6 +10,7 @@
     <key name="shortcut-repeat-area" type="as"><default><![CDATA[[]]]></default><summary>Repeat last area</summary></key>
     <key name="shortcut-text" type="as"><default><![CDATA[['<Control><Shift>Print']]]></default><summary>Copy text from area</summary></key>
     <key name="shortcut-annotate-clipboard" type="as"><default><![CDATA[[]]]></default><summary>Annotate clipboard image</summary></key>
+    <key name="shortcut-history" type="as"><default><![CDATA[[]]]></default><summary>Show clipboard history</summary></key>
 
     <key name="takes-over-screenshot-keys" type="b"><default>true</default><summary>Use the Print Screen keys</summary><description>While Shotput is on, the Print Screen shortcuts it uses are taken from GNOME's screenshot tool, and given back when it is turned off.</description></key>
     <key name="released-gnome-keys" type="s"><default>'{}'</default><summary>Shortcuts borrowed from GNOME</summary><description>JSON of the GNOME screenshot shortcuts Shotput is holding, so they can be given back.</description></key>
@@ -38,6 +39,7 @@
 
     <!-- Editor -->
     <key name="escape-in-editor" type="s"><default>'discard'</default><summary>discard or copy</summary></key>
+    <key name="editor-applies-edits" type="b"><default>true</default><summary>Edits go to the clipboard as you make them</summary><description>Each finished change in the editor is copied a moment later, so there is no need to press Copy or Done.</description></key>
     <key name="editor-closes-on-copy" type="b"><default>false</default><summary>Copy also closes the editor</summary></key>
     <key name="recognizes-shapes" type="b"><default>true</default><summary>Turn sketches into shapes</summary></key>
     <key name="ocr-keeps-line-breaks" type="b"><default>true</default><summary>Keep line breaks in recognised text</summary></key>
@@ -47,6 +49,8 @@
     <key name="editor-weight" type="i"><default>1</default><summary>Last weight</summary></key>
 
     <!-- Output -->
+    <key name="keeps-history" type="b"><default>true</default><summary>Keep a clipboard history</summary><description>Recent captures and their edits, to copy again from the top bar or the history window.</description></key>
+    <key name="history-size" type="i"><range min="5" max="50"/><default>15</default><summary>Items kept in the clipboard history</summary></key>
     <key name="copy-at-point-size" type="b"><default>false</default><summary>Use standard resolution</summary></key>
     <key name="save-folder" type="s"><default>''</default><summary>Save folder</summary></key>
     <key name="saves-every-capture" type="b"><default>false</default><summary>Save every capture to the save folder</summary></key>

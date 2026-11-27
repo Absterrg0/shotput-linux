@@ -13,7 +13,7 @@ const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
 const IFACE: &str = "org.freedesktop.portal.GlobalShortcuts";
 
 /// Shortcut id, settings key, description.
-const ACTIONS: [(&str, &str, &str); 8] = [
+const ACTIONS: [(&str, &str, &str); 9] = [
     ("area", "shortcut-area", "Capture area"),
     ("annotate", "shortcut-area-annotate", "Capture area and annotate"),
     ("window", "shortcut-window", "Capture window"),
@@ -22,6 +22,7 @@ const ACTIONS: [(&str, &str, &str); 8] = [
     ("last", "shortcut-annotate-last", "Annotate last capture"),
     ("repeat", "shortcut-repeat-area", "Repeat last area"),
     ("clipboard", "shortcut-annotate-clipboard", "Annotate clipboard image"),
+    ("history", "shortcut-history", "Show clipboard history"),
 ];
 
 thread_local! {

@@ -11,6 +11,6 @@
   ],
   "settings-schema": "org.gnome.shell.extensions.shotput",
   "url": "https://github.com/Absterrg0/shotput-linux",
-  "version": 5,
-  "version-name": "1.4.0"
+  "version": 6,
+  "version-name": "1.5.0"
 }

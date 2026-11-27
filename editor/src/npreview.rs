@@ -13,11 +13,24 @@ use std::rc::Rc;
 
 thread_local! {
     static CURRENT: RefCell<Option<gtk::Window>> = const { RefCell::new(None) };
+    static CURRENT_ID: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 fn dismiss() {
+    CURRENT_ID.with(|c| c.borrow_mut().take());
     if let Some(w) = CURRENT.with(|c| c.borrow_mut().take()) {
         w.destroy();
+    }
+}
+
+/// An edit of the capture on show: show the edited image, for its thumbnail and drag.
+pub fn refresh(capture: &Capture) {
+    let showing = CURRENT_ID.with(|c| c.borrow().as_deref() == Some(capture.id.as_str()));
+    let window = CURRENT.with(|c| c.borrow().clone());
+    if let (true, Some(window)) = (showing, window) {
+        if let Some(app) = window.application().and_downcast::<adw::Application>() {
+            show(&app, capture);
+        }
     }
 }
 
@@ -223,6 +236,7 @@ pub fn show(app: &adw::Application, capture: &Capture) {
         });
     }
     CURRENT.with(|c| *c.borrow_mut() = Some(window));
+    CURRENT_ID.with(|c| *c.borrow_mut() = Some(capture.id.clone()));
     schedule();
 }
 

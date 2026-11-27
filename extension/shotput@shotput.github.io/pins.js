@@ -147,11 +147,18 @@ class ShotputIndicator extends PanelMenu.Button {
         this._trayItem = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false, style_class: 'shotput-tray-item'});
         this.menu.addMenuItem(this._trayItem);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        // Recent captures and their edits, folded away until asked for.
+        this._historyItem = new PopupMenu.PopupSubMenuMenuItem('Clipboard History', true);
+        this._historyItem.icon.icon_name = 'edit-paste-symbolic';
+        this.menu.addMenuItem(this._historyItem);
+        this._historySeparator = new PopupMenu.PopupSeparatorMenuItem();
+        this.menu.addMenuItem(this._historySeparator);
         this._actionsSection = new PopupMenu.PopupMenuSection();
         this.menu.addMenuItem(this._actionsSection);
         this.menu.connect('open-state-changed', (_m, open) => {
             if (open) {
                 this._buildTray();
+                this._buildHistory();
                 this._buildActions();
             }
         });
@@ -159,6 +166,83 @@ class ShotputIndicator extends PanelMenu.Button {
             if (this.menu.isOpen)
                 this._buildTray();
         });
+        this._unwatchHistory = shotput.history.onChange(() => {
+            if (this.menu.isOpen)
+                this._buildHistory();
+        });
+    }
+
+    /** Opens the menu with the history unfolded, for the shortcut and `shotput history`. */
+    openHistory() {
+        if (!this.menu.isOpen)
+            this.menu.open();
+        this._historyItem.setSubmenuShown(true);
+        this._firstHistoryCell?.grab_key_focus();
+    }
+
+    _buildHistory() {
+        const s = this._shotput;
+        const store = s.history;
+        const item = this._historyItem;
+        const on = store.enabled;
+        item.visible = this._historySeparator.visible = on;
+        this._firstHistoryCell = null;
+        item.menu.removeAll();
+        if (!on)
+            return;
+        const entries = store.entries();
+        item.label.text = entries.length ? `Clipboard History (${entries.length})` : 'Clipboard History';
+
+        const holder = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false, style_class: 'shotput-tray-item'});
+        const box = new St.BoxLayout({vertical: true, style_class: 'shotput-tray', x_expand: true});
+        if (entries.length === 0) {
+            box.add_child(new St.Label({text: 'Captures and their edits show up here, newest first.', style_class: 'shotput-tray-empty-detail'}));
+        } else {
+            const header = new St.BoxLayout({style_class: 'shotput-tray-header'});
+            header.add_child(new St.Label({
+                text: 'Click to copy again. Alt-click to annotate.',
+                style_class: 'shotput-tray-footer', y_align: Clutter.ActorAlign.CENTER,
+            }));
+            header.add_child(new St.Widget({x_expand: true}));
+            const clear = new St.Button({label: 'Clear', style_class: 'shotput-link-button', can_focus: true, accessible_name: 'Clear History'});
+            clear.connect('clicked', () => store.clear());
+            header.add_child(clear);
+            box.add_child(header);
+            const strip = new St.BoxLayout({style_class: 'shotput-tray-strip'});
+            for (const entry of entries) {
+                const cell = this._historyCell(entry);
+                this._firstHistoryCell ??= cell;
+                strip.add_child(cell);
+            }
+            box.add_child(this._scroller(strip));
+        }
+        holder.add_child(box);
+        item.menu.addMenuItem(holder);
+    }
+
+    /** A sideways strip that a plain mouse wheel scrolls too. */
+    _scroller(strip) {
+        const scroll = new St.ScrollView({
+            style_class: 'shotput-tray-scroll', hscrollbar_policy: St.PolicyType.EXTERNAL,
+            vscrollbar_policy: St.PolicyType.NEVER, overlay_scrollbars: true, enable_mouse_scrolling: true,
+            x_expand: true, child: strip,
+        });
+        scroll.connect('scroll-event', (_a, event) => {
+            const adj = scroll.hadjustment;
+            const dir = event.get_scroll_direction();
+            let delta = 0;
+            if (dir === Clutter.ScrollDirection.UP || dir === Clutter.ScrollDirection.LEFT)
+                delta = -60;
+            else if (dir === Clutter.ScrollDirection.DOWN || dir === Clutter.ScrollDirection.RIGHT)
+                delta = 60;
+            else if (dir === Clutter.ScrollDirection.SMOOTH) {
+                const [dx, dy] = event.get_scroll_delta();
+                delta = (Math.abs(dy) > Math.abs(dx) ? dy : dx) * 30;
+            }
+            adj.value = Math.min(Math.max(adj.value + delta, adj.lower), adj.upper - adj.page_size);
+            return Clutter.EVENT_STOP;
+        });
+        return scroll;
     }
 
     pulse() {
@@ -250,27 +334,7 @@ class ShotputIndicator extends PanelMenu.Button {
             const strip = new St.BoxLayout({style_class: 'shotput-tray-strip'});
             for (const pin of store.pins)
                 strip.add_child(this._cell(pin));
-            const scroll = new St.ScrollView({
-                style_class: 'shotput-tray-scroll', hscrollbar_policy: St.PolicyType.EXTERNAL,
-                vscrollbar_policy: St.PolicyType.NEVER, overlay_scrollbars: true, enable_mouse_scrolling: true,
-                x_expand: true, child: strip,
-            });
-            // A plain mouse wheel scrolls the strip sideways too.
-            scroll.connect('scroll-event', (_a, event) => {
-                const adj = scroll.hadjustment;
-                const dir = event.get_scroll_direction();
-                let delta = 0;
-                if (dir === Clutter.ScrollDirection.UP || dir === Clutter.ScrollDirection.LEFT)
-                    delta = -60;
-                else if (dir === Clutter.ScrollDirection.DOWN || dir === Clutter.ScrollDirection.RIGHT)
-                    delta = 60;
-                else if (dir === Clutter.ScrollDirection.SMOOTH) {
-                    const [dx, dy] = event.get_scroll_delta();
-                    delta = (Math.abs(dy) > Math.abs(dx) ? dy : dx) * 30;
-                }
-                adj.value = Math.min(Math.max(adj.value + delta, adj.lower), adj.upper - adj.page_size);
-                return Clutter.EVENT_STOP;
-            });
+            const scroll = this._scroller(strip);
             box.add_child(scroll);
             box.add_child(new St.Label({
                 text: 'Click to copy. Alt-click or middle-click to annotate.',
@@ -283,22 +347,51 @@ class ShotputIndicator extends PanelMenu.Button {
     /** One pin: click copies, Alt-click annotates, the corner button unpins. */
     _cell(pin) {
         const s = this._shotput;
+        return this._thumbCell({
+            path: s.pins.path(pin), date: pin.date, appName: pin.appName,
+            name: 'Pinned screenshot', removeLabel: 'Unpin',
+            onCopy: () => {
+                s.setClipboardBytes(s.pins.bytes(pin));
+                s.hud.show('Copied pinned screenshot');
+            },
+            onAnnotate: () => s.openPinned(pin),
+            onRemove: () => s.pins.remove(pin),
+        });
+    }
+
+    /** One history item: click copies it again, Alt-click or the pencil annotates. */
+    _historyCell(entry) {
+        const s = this._shotput;
+        const thumb = s.history.thumbPath(entry.id);
+        return this._thumbCell({
+            path: GLib.file_test(thumb, GLib.FileTest.EXISTS) ? thumb : s.history.path(entry.id),
+            date: entry.date, appName: entry.appName,
+            name: 'Recent screenshot', removeLabel: 'Remove from history',
+            onCopy: () => s.copyHistory(entry),
+            onAnnotate: () => s.openHistory(entry),
+            onRemove: () => s.history.remove(entry),
+            annotateButton: true,
+        });
+    }
+
+    _thumbCell({path, date, appName, name, removeLabel, onCopy, onAnnotate, onRemove, annotateButton = false}) {
+        const s = this._shotput;
         const cell = new St.Button({
             style_class: 'shotput-pin-cell', width: CELL.width, height: CELL.height, can_focus: true,
             track_hover: true, button_mask: St.ButtonMask.ONE | St.ButtonMask.TWO,
-            accessible_name: `Pinned screenshot, ${relativeTime(pin.date)}`,
+            accessible_name: `${name}, ${relativeTime(date)}`,
         });
         const layout = new St.Widget({layout_manager: new Clutter.BinLayout(), width: CELL.width, height: CELL.height});
         const image = new St.Widget({x_expand: true, y_expand: true});
         try {
-            const pixbuf = GdkPixbuf.Pixbuf.new_from_file(s.pins.path(pin));
+            const pixbuf = GdkPixbuf.Pixbuf.new_from_file(path);
             image.set_content(coverContent(pixbuf, CELL.width, CELL.height));
         } catch {}
         image.add_effect(new RoundedMask(10));
         layout.add_child(image);
         layout.add_child(new St.Widget({style_class: 'shotput-pin-ring', x_expand: true, y_expand: true}));
         const meta = new St.Label({
-            text: [pin.appName, relativeTime(pin.date)].filter(Boolean).join(', '),
+            text: [appName, relativeTime(date)].filter(Boolean).join(', '),
             style_class: 'shotput-pin-meta', opacity: 0,
         });
         // Kept to its own size in the bottom-left corner.
@@ -308,36 +401,52 @@ class ShotputIndicator extends PanelMenu.Button {
         metaRow.add_child(meta);
         metaLayer.add_child(metaRow);
         layout.add_child(metaLayer);
-        const remove = new St.Button({
-            style_class: 'shotput-glass-button shotput-glass-small', can_focus: false, opacity: 0,
-            child: new St.Icon({icon_name: 'window-close-symbolic', icon_size: 12}), accessible_name: 'Unpin',
-        });
-        remove.connect('clicked', () => s.pins.remove(pin));
+        const glass = (iconProps, label, onClick, closes) => {
+            const b = new St.Button({
+                style_class: 'shotput-glass-button shotput-glass-small', can_focus: false, opacity: 0,
+                child: new St.Icon({...iconProps, icon_size: 12}), accessible_name: label,
+            });
+            b.connect('clicked', () => {
+                if (closes)
+                    this.menu.close();
+                onClick();
+            });
+            return b;
+        };
         const corner = new St.Widget({x_expand: true, y_expand: true, layout_manager: new Clutter.FixedLayout()});
+        // Removing keeps the menu open, so several can go in a row.
+        const remove = glass({icon_name: 'window-close-symbolic'}, removeLabel, onRemove, false);
         corner.add_child(remove);
         remove.set_position(CELL.width - 26, 4);
+        const extras = [remove];
+        if (annotateButton) {
+            const annotate = glass({gicon: Gio.icon_new_for_string(GLib.build_filenamev([s.path, 'icons', 'shotput-annotate-symbolic.svg']))},
+                'Annotate', onAnnotate, true);
+            corner.add_child(annotate);
+            annotate.set_position(CELL.width - 52, 4);
+            extras.push(annotate);
+        }
         layout.add_child(corner);
         cell.set_child(layout);
         cell.connect('notify::hover', () => {
-            remove.opacity = cell.hover ? 255 : 0;
-            meta.opacity = cell.hover ? 255 : 0;
+            for (const a of [...extras, meta])
+                a.opacity = cell.hover ? 255 : 0;
         });
         cell.connect('clicked', (_b, button) => {
             const event = Clutter.get_current_event();
             const alt = event && (event.get_state() & (Clutter.ModifierType.MOD1_MASK | Clutter.ModifierType.CONTROL_MASK));
             this.menu.close();
-            if (alt || button === 2) {
-                s.openPinned(pin);
-            } else {
-                s.setClipboardBytes(s.pins.bytes(pin));
-                s.hud.show('Copied pinned screenshot');
-            }
+            if (alt || button === 2)
+                onAnnotate();
+            else
+                onCopy();
         });
         return cell;
     }
 
     destroy() {
         this._unwatch?.();
+        this._unwatchHistory?.();
         super.destroy();
     }
 });

@@ -7,6 +7,7 @@ import Gio from 'gi://Gio';
 export const SHORTCUT_KEYS = [
     'shortcut-area', 'shortcut-area-annotate', 'shortcut-window', 'shortcut-screen',
     'shortcut-annotate-last', 'shortcut-repeat-area', 'shortcut-text', 'shortcut-annotate-clipboard',
+    'shortcut-history',
 ];
 
 /** GNOME's screenshot and recording bindings, which share the Print key with Shotput. */

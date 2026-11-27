@@ -90,13 +90,8 @@ export class PreviewController {
             width: w, height: h, layout_manager: new Clutter.BinLayout(),
         });
         const image = new St.Widget({x_expand: true, y_expand: true, style_class: 'shotput-preview-image'});
-        // Small captures sit centred at their real size. Larger ones fill the thumbnail.
-        if (point.width <= w && point.height <= h) {
-            image.set_content(imageContent(capture.pixbuf, capture.scale));
-            image.set_content_gravity(Clutter.ContentGravity.CENTER);
-        } else {
-            image.set_content(coverContent(capture.pixbuf, w, h));
-        }
+        this._setImage(image, capture, w, h);
+        this._shown = {capture, image, w, h};
         image.add_effect(new RoundedMask(CHIP_RADIUS));
         actor.add_child(image);
 
@@ -196,6 +191,26 @@ export class PreviewController {
             mode: Clutter.AnimationMode.EASE_OUT_EXPO,
         });
         this._scheduleDismissal();
+    }
+
+    /** Small captures sit centred at their real size. Larger ones fill the thumbnail. */
+    _setImage(image, capture, w, h) {
+        const point = capture.pointSize;
+        if (point.width <= w && point.height <= h) {
+            image.set_content(imageContent(capture.pixbuf, capture.scale));
+            image.set_content_gravity(Clutter.ContentGravity.CENTER);
+        } else {
+            image.set_content(coverContent(capture.pixbuf, w, h));
+            image.set_content_gravity(Clutter.ContentGravity.RESIZE_FILL);
+        }
+    }
+
+    /** The editor changed the capture on show: show its new pixels. Copy and drag use them too. */
+    refresh(capture) {
+        const shown = this._shown;
+        if (!this._actor || shown?.capture !== capture)
+            return;
+        this._setImage(shown.image, capture, shown.w, shown.h);
     }
 
     /** Picks the corner nearest the pointer that does not cover what was just captured. */

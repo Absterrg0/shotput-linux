@@ -27,6 +27,24 @@ pub fn call_shell(method: &str, args: &glib::Variant) -> bool {
     .is_ok()
 }
 
+/// Calls a method on the extension without blocking. Resolves to false when it is not there
+/// or does not know the method (an older extension).
+pub async fn call_shell_async(method: &str, args: glib::Variant) -> bool {
+    let Ok(bus) = gio::bus_get_future(gio::BusType::Session).await else { return false };
+    bus.call_future(
+        Some(SHELL_BUS),
+        SHELL_PATH,
+        SHELL_IFACE,
+        method,
+        Some(&args),
+        None,
+        gio::DBusCallFlags::NO_AUTO_START,
+        3000,
+    )
+    .await
+    .is_ok()
+}
+
 pub fn runtime_dir() -> PathBuf {
     let dir = glib::user_runtime_dir().join("shotput");
     let _ = std::fs::create_dir_all(&dir);

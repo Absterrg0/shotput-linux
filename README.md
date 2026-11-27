@@ -46,7 +46,8 @@ opens the editor exactly as on GNOME.
 - **Install `gtk4-layer-shell`** for the floating preview and an overlay above panels (Plasma,
   Hyprland and Sway all support it). Without it the overlay is a fullscreen window and a
   notification replaces the preview.
-- `shotput settings` opens Shotput's own settings window there.
+- `shotput settings` opens Shotput's own settings window there, and `shotput history` (or its
+  shortcut) a small window with the clipboard history.
 - Not yet on these desktops: pins in a tray icon, and opening the editor right where you captured
   (Wayland lets only GNOME's extension place windows).
 
@@ -62,6 +63,7 @@ opens the editor exactly as on GNOME.
 | Copy text from area | Ctrl+Shift+Print | Drag over text and it is copied as text, read on this machine. |
 | Repeat last area | none | Captures the same area again, with no selection. |
 | Annotate clipboard image | none | Opens the image on the clipboard in the editor. |
+| Show clipboard history | none | Recent captures and edits, to copy one again. |
 
 While Shotput is on, it borrows exactly the Print Screen shortcuts it uses from GNOME's own
 screenshot tool, and gives them back when it is turned off or removed. GNOME's screen recorder
@@ -71,7 +73,7 @@ in Settings → Shortcuts, which also warns when a key is already taken by GNOME
 Pressing a capture shortcut again while selecting backs out. Mouse software (Solaar, Piper, Input
 Remapper) can press these shortcuts from a mouse button. Launchers can use `shotput area`,
 `shotput annotate`, `shotput window`, `shotput text`, `shotput last`, `shotput clipboard`,
-`shotput settings`, or the same as `shotput://area` links. A silent full-screen capture is
+`shotput history`, `shotput settings`, or the same as `shotput://area` links. A silent full-screen capture is
 shortcut only, so another program cannot use Shotput to read your screen.
 
 ## Selecting
@@ -112,6 +114,19 @@ The top bar icon holds the last 15 pins in a strip that scrolls sideways. Click 
 Alt-click or middle-click to annotate it. The same menu has every capture, Record Screen and
 Settings.
 
+## Clipboard history
+
+Shotput remembers your recent captures, and the edited version of each one you annotate, so you
+can copy an earlier one again. On GNOME it is under Clipboard History in the top bar menu; on
+other desktops `shotput history` opens it in a small window. Newest first:
+
+- Click one to put it back on the clipboard. Alt-click, middle-click or the pencil opens it in the
+  editor, and its edits update the same item instead of adding another.
+- A shortcut (none by default) and `shotput://history` open it too. Clear empties it.
+- It keeps 15 items by default (5 to 50 in Settings → Output), at most 256 MB, and survives a
+  restart. The images stay in `~/.local/share/shotput/history` on this computer. Turn it off in
+  Settings and nothing new is kept.
+
 ## Annotating
 
 | Tool | Key | Notes |
@@ -130,6 +145,13 @@ Settings.
 Keys 1 to 8 pick a colour. Every mark has a thin halo and soft shadow. Drag a mark to move it,
 drag its handles to reshape it, arrow keys nudge (Shift for 10). Delete removes it. Ctrl+scroll
 or a pinch zooms; Ctrl+0 is actual size, Ctrl+9 fits.
+
+Edits land on the clipboard as you make them: a moment after you finish a stroke, a shape, an
+undo, a crop or a background, the edited image is copied, so you can paste it straight away
+without pressing anything. Undo everything and the original is back. The preview, the drag card
+and "Annotate last capture" use the edited image too, and the last capture reopens with its marks
+still editable while Shotput is running. Your saved file in Pictures is never changed. (Turn it
+off in Settings → Editor to copy only when you ask.)
 
 **Return** copies the result and closes the editor. Ctrl+C copies and keeps it open, Ctrl+S
 saves, and the drag handle in the toolbar drags the finished image into any app. The Background
@@ -164,12 +186,13 @@ corners, and "Copy text" copies the text in the screenshot.
 ## Development
 
 ```bash
-cd editor && cargo test --release              # model and shape recognition tests
+cd editor && cargo test --release              # model, history and edit-apply tests
 ./target/release/shotput dev-editor /tmp/out   # renders the editor with every kind of mark
 tests/nested-shell.sh                          # headless nested GNOME Shell with the extension
 tests/sh-eval.sh 'sp().run("area")'            # drive it (after loading tests/drive.js)
 tests/containers/run.sh gnome46                # GNOME 46 (Ubuntu 24.04) in a container
 tests/containers/sway-run.sh BIN               # headless Sway; KDE: kde-run.sh (KDE_GPU=1)
+shotput test-editor rect X Y W H               # with SHOTPUT_TEST=1: draws in the open editor (also undo, redo, done)
 scripts/package.sh                             # builds dist/shotput-linux-ARCH.tar.gz
 ```
 
